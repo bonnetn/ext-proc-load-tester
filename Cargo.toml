@@ -1,0 +1,10 @@
+[package]
+name = "ext-proc-load-tester"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tonic = "0.13.1"
+
+[build-dependencies]
+tonic-build = "0.13.1"
