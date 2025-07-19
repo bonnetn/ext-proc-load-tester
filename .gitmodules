@@ -1,0 +1,12 @@
+[submodule "proto/envoy"]
+	path = proto/envoy
+	url = git@github.com:envoyproxy/envoy.git
+[submodule "proto/protoc-gen-validate"]
+	path = proto/protoc-gen-validate
+	url = git@github.com:bufbuild/protoc-gen-validate.git
+[submodule "proto/udpa"]
+	path = proto/udpa
+	url = git@github.com:cncf/udpa.git
+[submodule "proto/xds"]
+	path = proto/xds
+	url = git@github.com:cncf/xds.git
