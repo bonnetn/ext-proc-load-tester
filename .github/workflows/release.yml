@@ -27,8 +27,8 @@ jobs:
       - name: Prepare artifact
         run: |
           mkdir artifacts
-          cp target/aarch64-apple-darwin/release/$BIN_NAME artifacts/ext-proc-load-tester-aarch64-apple-darwin
-          cp target/x86_64-apple-darwin/release/$BIN_NAME artifacts/ext-proc-load-tester-x86_64-apple-darwin
+          cp target/aarch64-apple-darwin/release/ext-proc-load-tester artifacts/ext-proc-load-tester-aarch64-apple-darwin
+          cp target/x86_64-apple-darwin/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-apple-darwin
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
