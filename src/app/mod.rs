@@ -1,6 +1,5 @@
 use std::{
     env,
-    io::Write,
     path::Path,
     time::{Duration, Instant},
 };
@@ -16,13 +15,13 @@ use crate::{
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use tokio::{fs::File, io::AsyncWriteExt as _, select, sync::mpsc};
+use tokio::{select, sync::mpsc};
 use tokio_stream::{StreamExt as _, wrappers::ReceiverStream};
 use tonic::transport::Channel;
-use zstd::Encoder;
 
 mod cli;
 pub(crate) mod error;
+mod report;
 mod sample_requests;
 
 use error::Result;
@@ -176,7 +175,7 @@ where
         ));
     }
 
-    write_report(result_directory, target_throughput, &durations)
+    report::write(result_directory, target_throughput, &durations)
         .await
         .map_err(Error::WriteReport)?;
 
@@ -193,36 +192,6 @@ where
         min_duration,
         max_duration,
     ));
-
-    Ok(())
-}
-
-async fn write_report(
-    directory_path: &Path,
-    target_throughput: u64,
-    durations: &[Duration],
-) -> Result<(), std::io::Error> {
-    let file_name = format!("durations_{target_throughput}.json.txt.zst");
-    let file_path = directory_path.join(file_name);
-
-    let mut encoder = Encoder::new(Vec::new(), 0)?;
-
-    encoder.write_all(b"[")?;
-
-    let mut has_previous_value = false;
-    for duration in durations {
-        if has_previous_value {
-            encoder.write_all(b",")?;
-        }
-        encoder.write_all(format!("{}", duration.as_nanos()).as_bytes())?;
-        has_previous_value = true;
-    }
-
-    encoder.write_all(b"]")?;
-    let v = encoder.finish()?;
-
-    let mut f = File::create(file_path).await?;
-    f.write_all(&v).await?;
 
     Ok(())
 }
