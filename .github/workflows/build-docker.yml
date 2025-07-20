@@ -5,6 +5,21 @@ jobs:
   buildx:
     runs-on: ubuntu-latest
     steps:
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/bonnetn/ext-proc-load-tester
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -27,4 +42,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/bonnetn/ext-proc-load-tester:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
