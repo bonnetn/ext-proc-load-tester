@@ -73,9 +73,13 @@ jobs:
         with:
           submodules: "true"
       - uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1
+        with:
+          target: x86_64-apple-darwin
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build
-        run: cargo build --verbose
+      - name: Build ARM
+        run: cargo build --release --target aarch64-apple-darwin
+      - name: Build Intel
+        run: cargo build --release --target x86_64-apple-darwin
