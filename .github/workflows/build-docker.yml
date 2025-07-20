@@ -27,4 +27,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: bonnetn/ext-proc-load-tester:latest
+          tags: ghcr.io/bonnetn/ext-proc-load-tester:latest
