@@ -66,8 +66,8 @@ jobs:
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@559aa3035a47390ba96088dffa783b5d26da9326 # v1
   macos-build:
-    name: Build binaries
-    runs-on: macos-15
+    name: MacOS build
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
