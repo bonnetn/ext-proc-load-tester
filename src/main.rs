@@ -1,3 +1,18 @@
+#![deny(
+    warnings,
+    clippy::correctness,
+    clippy::suspicious,
+    clippy::complexity,
+    clippy::perf,
+    clippy::style,
+    clippy::pedantic,
+    clippy::cargo,
+)]
+
+#![warn(clippy::nursery)]
+
+#![allow(clippy::restriction)]
+
 mod generated;
 
 use std::{
