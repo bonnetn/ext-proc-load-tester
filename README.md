@@ -10,6 +10,8 @@ cargo run -- <ext_proc_server_uri>
 
 This creates JSON files in the current directory, each containing the latency of every stream.
 
+Vizualize the latencies by uploading the JSON files to https://nicolasbon.net/ext-proc-load-tester/
+
 ## Examples
 
 ```bash
