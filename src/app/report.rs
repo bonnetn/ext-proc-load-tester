@@ -8,7 +8,7 @@ pub(crate) async fn write(
     target_throughput: u64,
     durations: &[Duration],
 ) -> Result<(), std::io::Error> {
-    let file_name = format!("durations_{target_throughput}.json.txt.zst");
+    let file_name = format!("durations_{target_throughput}.json.zst");
     let file_path = directory_path.join(file_name);
 
     let mut encoder = Encoder::new(Vec::new(), 0)?;
