@@ -42,18 +42,10 @@ jobs:
         with:
           submodules: "true"
       - uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1
-        with:
-          target: aarch64-unknown-linux-gnu
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install cross-compiler dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --assume-yes gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-      - name: Build ARM
-        run: cargo build --release --target aarch64-unknown-linux-gnu --verbose
       - name: Build Intel
         run: cargo build --release --target x86_64-unknown-linux-gnu --verbose
       - name: Prepare artifact
