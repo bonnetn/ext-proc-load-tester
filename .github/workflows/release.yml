@@ -34,11 +34,40 @@ jobs:
         with:
           name: macos-build-artifacts
           path: artifacts/*
+  macos-build:
+    name: Linux build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          submodules: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1
+        with:
+          target: aarch64-unknown-linux-gnu
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build ARM
+        run: cargo build --release --target aarch64-unknown-linux-gnu --verbose
+      - name: Build Intel
+        run: cargo build --release --target x86_64-unknown-linux-gnu --verbose
+      - name: Prepare artifact
+        run: |
+          mkdir artifacts
+          cp target/aarch64-unknown-linux-gnu/release/ext-proc-load-tester artifacts/ext-proc-load-tester-aarch64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-unknown-linux-gnu
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-build-artifacts
+          path: artifacts/*
 
   release:
     name: Create GitHub Release
     needs:
      - macos-build
+     - linux-build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -47,11 +76,18 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: macos-build-artifacts
-          path: ./artifacts
+          path: ./macos-artifacts
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-build-artifacts
+          path: ./linux-artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/ext-proc-load-tester-aarch64-apple-darwin
-            artifacts/ext-proc-load-tester-x86_64-apple-darwin
+            macos-artifacts/ext-proc-load-tester-aarch64-apple-darwin
+            macos-artifacts/ext-proc-load-tester-x86_64-apple-darwin
+            linux-artifacts/ext-proc-load-tester-aarch64-unknown-linux-gnu
+            linux-artifacts/ext-proc-load-tester-x86_64-unknown-linux-gnu
