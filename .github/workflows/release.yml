@@ -6,46 +6,30 @@ on:
 env:
   CARGO_TERM_COLOR: always
 jobs:
-  build-release:
-    name: Build binaries
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target:
-          - aarch64-unknown-linux-gnu
-          - arm-unknown-linux-gnueabi
+  macos-build:
+    name: MacOS build
+    runs-on: macos-14
     steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          submodules: true
-      - name: Install toolchain
-        uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # v1
+          submodules: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1
         with:
-          toolchain: stable
-          target: ${{matrix.target}}
-          override: true
+          target: x86_64-apple-darwin
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build release binary
-        uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # v1
-        with:
-          use-cross: true
-          command: build
-          args: --release --target ${{matrix.target}}
-
+      - name: Build ARM
+        run: cargo build --release --target aarch64-apple-darwin
+      - name: Build Intel
+        run: cargo build --release --target x86_64-apple-darwin
       - name: Prepare artifact
         run: |
           mkdir artifacts
           BIN_NAME=ext-proc-load-test
-          cp target/${{ matrix.target }}/release/$BIN_NAME artifacts/$BIN_NAME-${{ matrix.target }}
-          # Add .exe for Windows
-          if [ "${{ matrix.target }}" = "x86_64-pc-windows-gnu" ]; then
-            mv artifacts/$BIN_NAME-${{ matrix.target }} artifacts/$BIN_NAME-${{ matrix.target }}.exe
-          fi
-
+          cp target/aarch64-apple-darwin/release/$BIN_NAME artifacts/$BIN_NAME-aarch64-apple-darwin
+          cp target/x86_64-apple-darwin/release/$BIN_NAME artifacts/$BIN_NAME-x86_64-apple-darwin
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
