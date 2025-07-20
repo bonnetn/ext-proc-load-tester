@@ -1,6 +1,6 @@
-#![deny(
-    warnings,
-    clippy::correctness,
+#![deny(clippy::correctness)]
+
+#![warn(
     clippy::suspicious,
     clippy::complexity,
     clippy::perf,
@@ -9,9 +9,9 @@
     clippy::cargo,
 )]
 
-#![warn(clippy::nursery)]
-
-#![allow(clippy::restriction)]
+#![allow(
+    clippy::restriction,
+)]
 
 #![feature(custom_inner_attributes)]
 #![clippy::msrv = "1.88.0"]
