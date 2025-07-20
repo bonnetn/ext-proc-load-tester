@@ -1,124 +1,33 @@
 use std::{
     env,
     io::Write,
-    num::TryFromIntError,
-    path::{Path, PathBuf},
-    time::Duration,
+    path::Path,
+    time::{Duration, Instant},
 };
 
-use crate::generated::envoy::service::ext_proc::v3::{
-    ProcessingRequest, external_processor_client::ExternalProcessorClient,
+use crate::{
+    app::{
+        cli::Cli,
+        error::Error,
+        sample_requests::{request_headers, response_headers},
+    },
+    generated::envoy::service::ext_proc::v3::external_processor_client::ExternalProcessorClient,
 };
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use thiserror::Error;
-use tokio::{fs::File, io::AsyncWriteExt, time::Instant};
-use tokio::{
-    select,
-    sync::mpsc::{self, error::SendError},
-};
+use tokio::{fs::File, io::AsyncWriteExt as _, select, sync::mpsc};
 use tokio_stream::{StreamExt as _, wrappers::ReceiverStream};
 use tonic::transport::Channel;
 use zstd::Encoder;
 
-pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
+mod cli;
+pub(crate) mod error;
+mod sample_requests;
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Cli {
-    /// The URI of the `ext_proc` server.
-    uri: String,
+use error::Result;
 
-    /// The duration of each throughput level in seconds.
-    #[arg(long, default_value = "10", value_parser = validate_test_duration_seconds)]
-    test_duration: Duration,
-
-    /// The minimum throughput (requests per second) to use.
-    #[arg(long, default_value_t = 1, value_parser = validate_start_throughput)]
-    start_throughput: u64,
-
-    /// The maximum throughput (requests per second) to use.
-    #[arg(long, default_value_t = 16378, value_parser = validate_end_throughput)]
-    end_throughput: u64,
-
-    /// The multiplier for the next throughput level.
-    #[arg(long, default_value_t = 1, value_parser = validate_throughput_multiplier)]
-    throughput_multiplier: u64,
-
-    /// The number of requests added to the next throughput level.
-    #[arg(long, default_value_t = 0, value_parser = validate_throughput_step)]
-    throughput_step: u64,
-
-    /// The directory to write the results to.
-    /// Defaults to the current working directory.
-    #[arg(long, value_parser = validate_result_directory)]
-    result_directory: Option<PathBuf>,
-}
-
-fn validate_test_duration_seconds(v: &str) -> Result<Duration, String> {
-    let v: u64 = v
-        .parse()
-        .map_err(|_| format!("test duration must be a integer (seconds), got {v}"))?;
-
-    Ok(Duration::from_secs(v))
-}
-
-fn validate_start_throughput(v: &str) -> Result<u64, String> {
-    let v: u64 = v.parse().map_err(|_| {
-        format!("start throughput must be a integer (requests per second), got {v}")
-    })?;
-
-    if v < 1 {
-        return Err(format!(
-            "start throughput must be strictly positive, got {v}"
-        ));
-    }
-
-    Ok(v)
-}
-
-fn validate_end_throughput(v: &str) -> Result<u64, String> {
-    let v: u64 = v
-        .parse()
-        .map_err(|_| format!("end throughput must be a integer (requests per second), got {v}"))?;
-
-    if v < 1 {
-        return Err(format!("end throughput must be strictly positive, got {v}"));
-    }
-
-    Ok(v)
-}
-
-fn validate_throughput_step(v: &str) -> Result<u64, String> {
-    let v: u64 = v.parse().map_err(|_| {
-        format!("throughput step must be a integer (requests per second per run), got {v}")
-    })?;
-
-    Ok(v)
-}
-
-fn validate_throughput_multiplier(v: &str) -> Result<u64, String> {
-    let v: u64 = v.parse().map_err(|_| {
-        format!("throughput multiplier must be a integer (multiplier per run), got {v}")
-    })?;
-
-    Ok(v)
-}
-
-fn validate_result_directory(v: &str) -> Result<PathBuf, String> {
-    let v: PathBuf = v
-        .parse()
-        .map_err(|_| format!("result directory must be a path, got {v}"))?;
-
-    if !v.is_dir() {
-        return Err("result directory is not a directory".to_string());
-    }
-
-    Ok(v)
-}
-
-pub(crate) async fn run_app() -> Result<()> {
+pub(crate) async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     let channel = tonic::transport::Endpoint::new(cli.uri.clone())
@@ -138,10 +47,14 @@ pub(crate) async fn run_app() -> Result<()> {
         None => &env::current_dir().expect("current directory can be read"),
     };
 
-    run(&cli, &worker, result_directory).await
+    load_test(&cli, &worker, result_directory).await
 }
 
-async fn run<Fut>(cli: &Cli, run_worker: &impl Fn() -> Fut, result_directory: &Path) -> Result<()>
+async fn load_test<Fut>(
+    cli: &Cli,
+    run_worker: &impl Fn() -> Fut,
+    result_directory: &Path,
+) -> Result<()>
 where
     Fut: Future<Output = Result<Duration>> + Send,
 {
@@ -234,7 +147,7 @@ where
                             pb.inc(1);
                             requests_sent += 1;
                         }
-                        () = tokio::time::sleep_until(deadline) => {
+                        () = tokio::time::sleep_until(deadline.into()) => {
                             // NOTE: No ongoing worker, we can just break.
                             break;
                         }
@@ -243,7 +156,7 @@ where
                 }
             }
 
-            () = tokio::time::sleep_until(deadline) => {
+            () = tokio::time::sleep_until(deadline.into()) => {
                 while (f.next().await).is_some() {
                     // NOTE: We are waiting for the workers to finish.
                 }
@@ -345,94 +258,4 @@ async fn call_ext_proc(channel: Channel) -> Result<()> {
     };
 
     Ok(())
-}
-
-#[derive(Debug, Error)]
-pub(crate) enum Error {
-    #[error("failed to create gRPC endpoint: {0}")]
-    FailedToCreateEndpoint(tonic::transport::Error),
-    #[error("failed to connect to endpoint: {0}")]
-    FailedToConnectToEndpoint(tonic::transport::Error),
-    #[error("failed to call ext_proc: {0}")]
-    FailedToCallExtProc(Box<tonic::Status>),
-    #[error("cannot send request to ext_proc: {0}")]
-    CannotSendInitialRequest(Box<SendError<ProcessingRequest>>),
-    #[error(
-        "could not reach target throughput {0} req/s, actual throughput {1} req/s ({2}% of target). This indicates that the LOAD TESTER was saturated."
-    )]
-    CouldNotReachTargetThroughput(u64, u64, u64),
-    #[error("failed to write report: {0}")]
-    WriteReport(std::io::Error),
-    #[error("estimated request count is too large: {0}")]
-    EstimatedRequestCountTooLarge(TryFromIntError),
-}
-
-mod request_headers {
-    use crate::generated::envoy::{
-        config::core::v3::{HeaderMap, HeaderValue},
-        service::ext_proc::v3::{HttpHeaders, ProcessingRequest, processing_request::Request},
-    };
-
-    pub(crate) fn create_processing_request() -> ProcessingRequest {
-        ProcessingRequest {
-            request: Some(Request::RequestHeaders(create_http_headers())),
-            ..Default::default()
-        }
-    }
-
-    fn create_http_headers() -> HttpHeaders {
-        HttpHeaders {
-            headers: Some(create_header_map()),
-            ..Default::default()
-        }
-    }
-
-    fn create_header_map() -> HeaderMap {
-        HeaderMap {
-            headers: vec![create_header_value()],
-        }
-    }
-
-    fn create_header_value() -> HeaderValue {
-        HeaderValue {
-            key: "test".to_string(),
-            raw_value: vec![],
-            ..Default::default()
-        }
-    }
-}
-
-mod response_headers {
-    use crate::generated::envoy::{
-        config::core::v3::{HeaderMap, HeaderValue},
-        service::ext_proc::v3::{HttpHeaders, ProcessingRequest, processing_request::Request},
-    };
-
-    pub(crate) fn create_processing_request() -> ProcessingRequest {
-        ProcessingRequest {
-            request: Some(Request::ResponseHeaders(create_http_headers())),
-            ..Default::default()
-        }
-    }
-
-    fn create_http_headers() -> HttpHeaders {
-        HttpHeaders {
-            headers: Some(create_header_map()),
-            ..Default::default()
-        }
-    }
-
-    fn create_header_map() -> HeaderMap {
-        HeaderMap {
-            headers: vec![create_header_value()],
-        }
-    }
-
-    fn create_header_value() -> HeaderValue {
-        HeaderValue {
-            key: "test".to_string(),
-            raw_value: vec![],
-            ..Default::default()
-        }
-    }
 }

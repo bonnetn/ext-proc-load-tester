@@ -71,6 +71,6 @@ mod app;
 mod generated;
 
 #[tokio::main]
-async fn main() -> app::Result<()> {
-    app::run_app().await
+async fn main() -> app::error::Result<()> {
+    app::run().await
 }
