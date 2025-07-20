@@ -1,6 +1,6 @@
 # Ext-Proc Load Tester
 
-A load testing tool for Envoy external processing servers.
+A load testing tool for [Envoy external processing servers](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter). It opens ext_proc streams to the target server at an increasing rate (streams per second), ramping up in steps. The latency of each stream (from open to close) is recorded in JSON files.
 
 ## Usage
 
@@ -8,15 +8,17 @@ A load testing tool for Envoy external processing servers.
 cargo run -- <ext_proc_server_uri>
 ```
 
+This creates JSON files in the current directory, each containing the latency of every stream.
+
 ## Examples
 
 ```bash
-# Basic load test
-cargo run -- http://localhost:8080
+# Basic load test.
+cargo run -- grpc://localhost:12345
 
-# Custom throughput range
-cargo run -- http://localhost:8080 --start-throughput 10 --end-throughput 1000
+# Load test a server listening on a unix socket and write the results to a temporary directory.
+cargo run -- --result-directory "$(mktemp -d)" unix:///tmp/sock
 
-# Custom test duration
-cargo run -- http://localhost:8080 --test-duration 30
-``` 
+# Custom throughput ramp-up plan: 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 streams per second, with each step lasting 10 seconds.
+cargo run -- grpc://localhost:12345 --start-throughput 100 --end-throughput 1000 --throughput-step 100 --test-duration 10
+```
