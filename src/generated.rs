@@ -1,11 +1,5 @@
-#![allow(
-    clippy::correctness,
-    clippy::suspicious,
-    clippy::complexity,
-    clippy::perf,
-    clippy::style,
-    clippy::pedantic,
-)]
+#![allow(warnings)]
+
 pub(crate) mod envoy {
     pub(crate) mod service {
         pub(crate) mod ext_proc {
