@@ -34,7 +34,7 @@ jobs:
         with:
           name: macos-build-artifacts
           path: artifacts/*
-  macos-build:
+  linux-build:
     name: Linux build
     runs-on: ubuntu-24.04
     steps:
