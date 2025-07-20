@@ -15,13 +15,49 @@ jobs:
         with:
           submodules: "true"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
       - name: Build
         run: cargo build --verbose
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features
+  unit_tests:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
       - name: Run tests
         run: cargo test --verbose
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features
+  formatting:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+      - name: Rustfmt Check
+        uses: actions-rust-lang/rustfmt@v1
