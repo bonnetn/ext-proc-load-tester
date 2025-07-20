@@ -5,7 +5,6 @@
     clippy::perf,
     clippy::style,
     clippy::pedantic,
-    clippy::cargo
 )]
 #![allow(clippy::restriction)]
 

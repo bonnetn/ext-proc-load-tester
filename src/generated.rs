@@ -5,7 +5,6 @@
     clippy::perf,
     clippy::style,
     clippy::pedantic,
-    clippy::cargo
 )]
 pub(crate) mod envoy {
     pub(crate) mod service {
