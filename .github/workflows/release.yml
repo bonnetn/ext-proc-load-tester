@@ -12,32 +12,28 @@ jobs:
     strategy:
       matrix:
         target:
-          - x86_64-unknown-linux-gnu
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
-          - x86_64-pc-windows-gnu
+          - aarch64-unknown-linux-gnu
+          - arm-unknown-linux-gnueabi
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rs/toolchain@v1
         with:
-          target: ${{ matrix.target }}
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-
-      - name: Install dependencies for cross-compilation
-        if: matrix.target == 'x86_64-pc-windows-gnu'
-        run: sudo apt-get update && sudo apt-get install -y mingw-w64
-
+          toolchain: stable
+          target: ${{matrix.target}}
+          override: true
       - name: Build release binary
-        run: |
-          cargo build --release --target ${{ matrix.target }}
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{matrix.target}}
 
       - name: Prepare artifact
         run: |
           mkdir artifacts
-          BIN_NAME=mycli # <-- Replace with your CLI name
+          BIN_NAME=ext-proc-load-test
           cp target/${{ matrix.target }}/release/$BIN_NAME artifacts/$BIN_NAME-${{ matrix.target }}
           # Add .exe for Windows
           if [ "${{ matrix.target }}" = "x86_64-pc-windows-gnu" ]; then
