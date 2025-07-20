@@ -28,7 +28,9 @@ jobs:
         run: |
           mkdir artifacts
           BIN_NAME=ext-proc-load-tester
+          pwd
           ls target/release
+          ls target/
           cp target/release/$BIN_NAME artifacts/$BIN_NAME-aarch64-apple-darwin
           cp target/x86_64-apple-darwin/release/$BIN_NAME artifacts/$BIN_NAME-x86_64-apple-darwin
       - name: Upload artifacts
