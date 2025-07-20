@@ -40,7 +40,6 @@ use tokio::{
 use tokio_stream::{StreamExt as _, wrappers::ReceiverStream};
 use tonic::transport::Channel;
 use zstd::Encoder;
-// use tracing::{debug, info, trace};
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -171,9 +170,7 @@ fn validate_result_directory(v: &str) -> Result<PathBuf, String> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
-    // trace!(cli=?cli, "parsed cli");
 
     let channel = tonic::transport::Endpoint::new(cli.uri.clone())
         .map_err(Error::FailedToCreateEndpoint)?
@@ -191,16 +188,6 @@ async fn main() -> Result<()> {
         Some(dir) => Path::new(dir),
         None => &env::current_dir().expect("current directory can be read"),
     };
-
-    // info!(
-    //     test_duration=?cli.test_duration,
-    //     start_throughput=cli.start_throughput,
-    //     end_throughput=cli.end_throughput,
-    //     throughput_multiplier=cli.throughput_multiplier,
-    //     throughput_step=cli.throughput_step,
-    //     result_directory=?result_directory,
-    //     "starting load test"
-    // );
 
     run(&cli, &worker, result_directory).await
 }
@@ -240,8 +227,6 @@ where
         .await?;
         pb.finish();
     }
-
-    // info!(result_directory=?result_directory, "load test finished");
 
     Ok(())
 }
@@ -283,8 +268,6 @@ async fn run_with_throughput<Fut>(
 where
     Fut: Future<Output = Result<Duration>> + Send,
 {
-    // trace!(target_throughput, "starting test");
-
     let mut timer = tokio::time::interval(Duration::from_secs_f32(1. / target_throughput));
     let mut f: FuturesUnordered<Fut> = FuturesUnordered::new();
     let mut requests_sent = 0;
@@ -301,14 +284,11 @@ where
             }
 
             result = f.next() => {
-                // trace!(result=?result, "worker finished");
-
                 match result {
                     Some(result) => {
                         durations.push(result?);
                     }
                     None => {
-                    // trace!("no ongoing workers, waiting for next interval");
                     select! {
                         _ = timer.tick() => {
                             f.push(run_worker());
@@ -316,7 +296,6 @@ where
                             requests_sent += 1;
                         }
                         _ = tokio::time::sleep_until(deadline) => {
-                            // trace!("deadline reached, no ongoing workers, quitting");
                             break;
                         }
                     }
@@ -325,11 +304,8 @@ where
             }
 
             _ = tokio::time::sleep_until(deadline) => {
-                // trace!("deadline reached, waiting for workers to finish");
                 while (f.next().await).is_some() {
-                    // trace!(result=?result, "worker finished");
                 }
-                // trace!("all workers finished");
                 break;
             }
         }
@@ -362,16 +338,6 @@ where
         max_duration,
     ));
 
-    // debug!(
-    //     target_throughput,
-    //     actual_throughput,
-    //     percent_of_target_throughput,
-    //     request_finished=durations.len(),
-    //     avg_duration=?avg_duration,
-    //     min_duration=?min_duration,
-    //     max_duration=?max_duration,
-    //     "test finished");
-
     Ok(())
 }
 
@@ -383,7 +349,6 @@ async fn write_report(
     let file_name = format!("durations_{}.json.txt.zst", target_throughput.floor() as u32);
     let file_path = directory_path.join(file_name);
 
-    // let mut f = File::create(file_path).await?;
     let mut v = Vec::new();
     let mut encoder = Encoder::new(&mut v, 0)?;
 
@@ -409,7 +374,6 @@ async fn write_report(
 
 async fn call_ext_proc(channel: Channel) -> Result<()> {
     let mut client = ExternalProcessorClient::new(channel);
-    // trace!("created client");
 
     let (tx, rx) = mpsc::channel(2);
     tx.send(request_headers::create_processing_request())
@@ -417,35 +381,27 @@ async fn call_ext_proc(channel: Channel) -> Result<()> {
         .map_err(Error::CannotSendInitialRequest)?;
 
     let request_stream = ReceiverStream::new(rx);
-    // trace!("created request stream");
 
     let response = client
         .process(request_stream)
         .await
         .map_err(Error::FailedToCallExtProc)?;
-    // trace!("received response");
 
     let mut response_stream = response.into_inner();
 
     let Some(_processing_response) = response_stream.next().await else {
         // Early return if the stream is closed.
-        // trace!("stream is closed");
         return Ok(());
     };
 
-    // trace!(processing_response=?processing_response, "first processing_response received");
-
     let Ok(()) = tx.send(response_headers::create_processing_request()).await else {
-        // trace!("cannot send second request, stream is closed");
         return Ok(());
     };
 
     let Some(_processing_response) = response_stream.next().await else {
-        // trace!("cannot receive second response, stream is closed");
         return Ok(());
     };
 
-    // trace!(processing_response=?processing_response, "second processing_response received");
     Ok(())
 }
 
