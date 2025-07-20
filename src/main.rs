@@ -1,41 +1,35 @@
 #![deny(clippy::correctness)]
-
 #![warn(
     clippy::suspicious,
     clippy::complexity,
     clippy::perf,
     clippy::style,
     clippy::pedantic,
-    clippy::cargo,
+    clippy::cargo
 )]
-
-#![allow(
-    clippy::restriction,
-)]
-
+#![allow(clippy::restriction)]
 #![feature(custom_inner_attributes)]
 #![clippy::msrv = "1.88.0"]
 
 mod generated;
 
 use std::{
-    env, io::Write, path::{Path, PathBuf}, time::Duration, future::Future
+    env,
+    future::Future,
+    io::Write,
+    num::TryFromIntError,
+    path::{Path, PathBuf},
+    time::Duration,
 };
 
-use crate::generated::envoy::{
-    service::ext_proc::v3::{
-        ProcessingRequest, external_processor_client::ExternalProcessorClient,
-    },
+use crate::generated::envoy::service::ext_proc::v3::{
+    ProcessingRequest, external_processor_client::ExternalProcessorClient,
 };
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use thiserror::Error;
-use tokio::{
-    fs::File,
-    io::AsyncWriteExt,
-    time::Instant,
-};
+use tokio::{fs::File, io::AsyncWriteExt, time::Instant};
 use tokio::{
     select,
     sync::mpsc::{self, error::SendError},
@@ -57,20 +51,20 @@ struct Cli {
     test_duration: Duration,
 
     /// The minimum throughput (requests per second) to use.
-    #[arg(long, default_value_t = 1.0, value_parser = validate_start_throughput)]
-    start_throughput: f32,
+    #[arg(long, default_value_t = 1, value_parser = validate_start_throughput)]
+    start_throughput: u64,
 
     /// The maximum throughput (requests per second) to use.
-    #[arg(long, default_value_t = 16378.0, value_parser = validate_end_throughput)]
-    end_throughput: f32,
+    #[arg(long, default_value_t = 16378, value_parser = validate_end_throughput)]
+    end_throughput: u64,
 
     /// The multiplier for the next throughput level.
-    #[arg(long, default_value_t = 1.0, value_parser = validate_throughput_multiplier)]
-    throughput_multiplier: f32,
+    #[arg(long, default_value_t = 1, value_parser = validate_throughput_multiplier)]
+    throughput_multiplier: u64,
 
     /// The number of requests added to the next throughput level.
-    #[arg(long, default_value_t = 0.0, value_parser = validate_throughput_step)]
-    throughput_step: f32,
+    #[arg(long, default_value_t = 0, value_parser = validate_throughput_step)]
+    throughput_step: u64,
 
     /// The directory to write the results to.
     /// Defaults to the current working directory.
@@ -81,25 +75,17 @@ struct Cli {
 fn validate_test_duration_seconds(v: &str) -> Result<Duration, String> {
     let v: u64 = v
         .parse()
-        .map_err(|_| format!("test duration must be a number, got {v}"))?;
-    if v == 0 {
-        return Err(format!(
-            "test duration must be strictly positive, got {v}"
-        ));
-    }
+        .map_err(|_| format!("test duration must be a integer (seconds), got {v}"))?;
 
     Ok(Duration::from_secs(v))
 }
 
-fn validate_start_throughput(v: &str) -> Result<f32, String> {
-    let v: f32 = v
-        .parse()
-        .map_err(|_| format!("start throughput must be a number, got {v}"))?;
-    if !v.is_finite() {
-        return Err(format!("start throughput must be finite, got {v}"));
-    }
+fn validate_start_throughput(v: &str) -> Result<u64, String> {
+    let v: u64 = v.parse().map_err(|_| {
+        format!("start throughput must be a integer (requests per second), got {v}")
+    })?;
 
-    if v <= 0. {
+    if v < 1 {
         return Err(format!(
             "start throughput must be strictly positive, got {v}"
         ));
@@ -108,53 +94,30 @@ fn validate_start_throughput(v: &str) -> Result<f32, String> {
     Ok(v)
 }
 
-fn validate_end_throughput(v: &str) -> Result<f32, String> {
-    let v: f32 = v
+fn validate_end_throughput(v: &str) -> Result<u64, String> {
+    let v: u64 = v
         .parse()
-        .map_err(|_| format!("end throughput must be a number, got {v}"))?;
-    if !v.is_finite() {
-        return Err(format!("end throughput must be finite, got {v}"));
-    }
+        .map_err(|_| format!("end throughput must be a integer (requests per second), got {v}"))?;
 
-    if v <= 0. {
-        return Err(format!(
-            "end throughput must be strictly positive, got {v}"
-        ));
+    if v < 1 {
+        return Err(format!("end throughput must be strictly positive, got {v}"));
     }
 
     Ok(v)
 }
 
-fn validate_throughput_step(v: &str) -> Result<f32, String> {
-    let v: f32 = v
-        .parse()
-        .map_err(|_| format!("throughput step must be a number, got {v}"))?;
-    if !v.is_finite() {
-        return Err(format!("throughput step must be finite, got {v}"));
-    }
-
-    if v < 0. {
-        return Err(format!(
-            "throughput step must be above or equal to 0, got {v}"
-        ));
-    }
+fn validate_throughput_step(v: &str) -> Result<u64, String> {
+    let v: u64 = v.parse().map_err(|_| {
+        format!("throughput step must be a integer (requests per second per run), got {v}")
+    })?;
 
     Ok(v)
 }
 
-fn validate_throughput_multiplier(v: &str) -> Result<f32, String> {
-    let v: f32 = v
-        .parse()
-        .map_err(|_| format!("throughput multiplier must be a number, got {v}"))?;
-    if !v.is_finite() {
-        return Err(format!("throughput multiplier must be finite, got {v}"));
-    }
-
-    if v < 1. {
-        return Err(format!(
-            "throughput multiplier must be above or equal to 1, got {v}"
-        ));
-    }
+fn validate_throughput_multiplier(v: &str) -> Result<u64, String> {
+    let v: u64 = v.parse().map_err(|_| {
+        format!("throughput multiplier must be a integer (multiplier per run), got {v}")
+    })?;
 
     Ok(v)
 }
@@ -209,9 +172,9 @@ where
 
     let mut progress_bars = vec![];
     for throughput in &throughputs {
-        let estimated_request_count = cli.test_duration.as_secs_f32() * *throughput;
+        let estimated_request_count = cli.test_duration.as_secs() * *throughput;
 
-        let pb = multi_progress.add(ProgressBar::new(estimated_request_count as u64));
+        let pb = multi_progress.add(ProgressBar::new(estimated_request_count));
         pb.set_style(progress_style.clone());
         pb.set_message(format!("{throughput} req/s"));
         progress_bars.push(pb);
@@ -219,42 +182,26 @@ where
 
     for (throughput, pb) in throughputs.into_iter().zip(progress_bars.into_iter()) {
         let deadline = tokio::time::Instant::now() + cli.test_duration;
-        run_with_throughput(
-            &pb,
-            cli,
-            throughput,
-            deadline,
-            run_worker,
-            result_directory,
-        )
-        .await?;
+        run_with_throughput(&pb, cli, throughput, deadline, run_worker, result_directory).await?;
         pb.finish();
     }
 
     Ok(())
 }
 
-fn get_all_throughputs(cli: &Cli) -> Vec<f32> {
-    let from: f32 = cli.start_throughput;
-    let step: f32 = cli.throughput_step;
-    let mul: f32 = cli.throughput_multiplier;
+fn get_all_throughputs(cli: &Cli) -> Vec<u64> {
+    let u0 = cli.start_throughput;
+    let b = cli.throughput_step;
+    let a = cli.throughput_multiplier;
 
     let mut throughputs = vec![];
-    let mut i = 0_usize;
-    loop {
-        let throughput = if (mul - 1.).abs() < f32::EPSILON {
-            step.mul_add(i as f32, from)
-        } else {
-            let r = step / (1. - mul);
-            mul.powf(i as f32).mul_add(from - r, r)
-        };
-
-        if throughput > cli.end_throughput {
-            break;
+    let mut value = u0;
+    while value <= cli.end_throughput {
+        throughputs.push(value);
+        if a != 1 {
+            value *= a;
         }
-
-        throughputs.push(throughput);
-        i += 1;
+        value += b;
     }
 
     throughputs
@@ -263,7 +210,7 @@ fn get_all_throughputs(cli: &Cli) -> Vec<f32> {
 async fn run_with_throughput<Fut>(
     pb: &ProgressBar,
     cli: &Cli,
-    target_throughput: f32,
+    target_throughput: u64,
     deadline: tokio::time::Instant,
     run_worker: impl Fn() -> Fut,
     result_directory: &Path,
@@ -271,12 +218,18 @@ async fn run_with_throughput<Fut>(
 where
     Fut: Future<Output = Result<Duration>> + Send,
 {
-    let mut timer = tokio::time::interval(Duration::from_secs_f32(1. / target_throughput));
+    let interval_ns = 1_000_000_000 / target_throughput;
+    let mut timer = tokio::time::interval(Duration::from_nanos(interval_ns));
     let mut f: FuturesUnordered<Fut> = FuturesUnordered::new();
     let mut requests_sent = 0;
 
-    let estimated_count = (cli.test_duration.as_secs_f32() * target_throughput * 1.1) as usize;
-    let mut durations = Vec::with_capacity(estimated_count);
+    let target_request_count = cli.test_duration.as_secs() * target_throughput;
+
+    let target_request_count_usize: usize = target_request_count
+        .try_into()
+        .map_err(Error::EstimatedRequestCountTooLarge)?;
+
+    let mut durations = Vec::with_capacity(target_request_count_usize);
 
     loop {
         select! {
@@ -298,7 +251,8 @@ where
                             pb.inc(1);
                             requests_sent += 1;
                         }
-                        _ = tokio::time::sleep_until(deadline) => {
+                        () = tokio::time::sleep_until(deadline) => {
+                            // NOTE: No ongoing worker, we can just break.
                             break;
                         }
                     }
@@ -306,17 +260,19 @@ where
                 }
             }
 
-            _ = tokio::time::sleep_until(deadline) => {
+            () = tokio::time::sleep_until(deadline) => {
                 while (f.next().await).is_some() {
+                    // NOTE: We are waiting for the workers to finish.
                 }
                 break;
             }
         }
     }
 
-    let actual_throughput = requests_sent as f32 / cli.test_duration.as_secs_f32();
-    let percent_of_target_throughput = 100. * actual_throughput / target_throughput;
-    if percent_of_target_throughput < 90. {
+    let actual_throughput = requests_sent / cli.test_duration.as_secs();
+    let percent_of_target_throughput = 100 * requests_sent / target_request_count;
+
+    if percent_of_target_throughput < 90 {
         return Err(Error::CouldNotReachTargetThroughput(
             target_throughput,
             actual_throughput,
@@ -328,7 +284,8 @@ where
         .await
         .map_err(Error::WriteReport)?;
 
-    let avg_duration = durations.iter().sum::<Duration>() / u32::try_from(durations.len()).unwrap_or(1);
+    let avg_duration =
+        durations.iter().sum::<Duration>() / u32::try_from(durations.len()).unwrap_or(1);
     let min_duration = durations.iter().min().unwrap();
     let max_duration = durations.iter().max().unwrap();
 
@@ -346,10 +303,10 @@ where
 
 async fn write_report(
     directory_path: &Path,
-    target_throughput: f32,
+    target_throughput: u64,
     durations: &[Duration],
 ) -> Result<(), std::io::Error> {
-    let file_name = format!("durations_{}.json.txt.zst", target_throughput.floor() as u32);
+    let file_name = format!("durations_{target_throughput}.json.txt.zst");
     let file_path = directory_path.join(file_name);
 
     let mut v = Vec::new();
@@ -381,14 +338,14 @@ async fn call_ext_proc(channel: Channel) -> Result<()> {
     let (tx, rx) = mpsc::channel(2);
     tx.send(request_headers::create_processing_request())
         .await
-        .map_err(Error::CannotSendInitialRequest)?;
+        .map_err(|e| Error::CannotSendInitialRequest(Box::new(e)))?;
 
     let request_stream = ReceiverStream::new(rx);
 
     let response = client
         .process(request_stream)
         .await
-        .map_err(Error::FailedToCallExtProc)?;
+        .map_err(|e| Error::FailedToCallExtProc(Box::new(e)))?;
 
     let mut response_stream = response.into_inner();
 
@@ -415,15 +372,17 @@ enum Error {
     #[error("failed to connect to endpoint: {0}")]
     FailedToConnectToEndpoint(tonic::transport::Error),
     #[error("failed to call ext_proc: {0}")]
-    FailedToCallExtProc(tonic::Status),
+    FailedToCallExtProc(Box<tonic::Status>),
     #[error("cannot send request to ext_proc: {0}")]
-    CannotSendInitialRequest(SendError<ProcessingRequest>),
+    CannotSendInitialRequest(Box<SendError<ProcessingRequest>>),
     #[error(
         "could not reach target throughput {0} req/s, actual throughput {1} req/s ({2}% of target). This indicates that the LOAD TESTER was saturated."
     )]
-    CouldNotReachTargetThroughput(f32, f32, f32),
+    CouldNotReachTargetThroughput(u64, u64, u64),
     #[error("failed to write report: {0}")]
     WriteReport(std::io::Error),
+    #[error("estimated request count is too large: {0}")]
+    EstimatedRequestCountTooLarge(TryFromIntError),
 }
 
 mod request_headers {
@@ -449,7 +408,6 @@ mod request_headers {
     fn create_header_map() -> HeaderMap {
         HeaderMap {
             headers: vec![create_header_value()],
-            ..Default::default()
         }
     }
 
@@ -485,7 +443,6 @@ mod response_headers {
     fn create_header_map() -> HeaderMap {
         HeaderMap {
             headers: vec![create_header_value()],
-            ..Default::default()
         }
     }
 
