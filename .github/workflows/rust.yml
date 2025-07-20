@@ -63,3 +63,15 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@559aa3035a47390ba96088dffa783b5d26da9326 # v1
+  macos-build:
+    name: Build binaries
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          submodules: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+      - name: Build
+        run: cargo build --verbose
