@@ -16,14 +16,12 @@
 mod generated;
 
 use std::{
-    env, io::Write, path::{Path, PathBuf}, time::Duration
+    env, io::Write, path::{Path, PathBuf}, time::Duration, future::Future
 };
 
 use crate::generated::envoy::{
-    config::core::v3::{HeaderMap, HeaderValue},
     service::ext_proc::v3::{
-        HttpHeaders, ProcessingRequest, external_processor_client::ExternalProcessorClient,
-        processing_request::Request,
+        ProcessingRequest, external_processor_client::ExternalProcessorClient,
     },
 };
 use clap::Parser;
@@ -32,7 +30,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use thiserror::Error;
 use tokio::{
     fs::File,
-    io::{AsyncWriteExt, BufWriter},
+    io::AsyncWriteExt,
     time::Instant,
 };
 use tokio::{
@@ -49,7 +47,7 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// The URI of the ext_proc server.
+    /// The URI of the `ext_proc` server.
     uri: String,
 
     /// The duration of each throughput level in seconds.
@@ -81,11 +79,10 @@ struct Cli {
 fn validate_test_duration_seconds(v: &str) -> Result<Duration, String> {
     let v: u64 = v
         .parse()
-        .map_err(|_| format!("test duration must be a number, got {}", v))?;
-    if v <= 0 {
+        .map_err(|_| format!("test duration must be a number, got {v}"))?;
+    if v == 0 {
         return Err(format!(
-            "test duration must be strictly positive, got {}",
-            v
+            "test duration must be strictly positive, got {v}"
         ));
     }
 
@@ -95,15 +92,14 @@ fn validate_test_duration_seconds(v: &str) -> Result<Duration, String> {
 fn validate_start_throughput(v: &str) -> Result<f32, String> {
     let v: f32 = v
         .parse()
-        .map_err(|_| format!("start throughput must be a number, got {}", v))?;
+        .map_err(|_| format!("start throughput must be a number, got {v}"))?;
     if !v.is_finite() {
-        return Err(format!("start throughput must be finite, got {}", v));
+        return Err(format!("start throughput must be finite, got {v}"));
     }
 
     if v <= 0. {
         return Err(format!(
-            "start throughput must be strictly positive, got {}",
-            v
+            "start throughput must be strictly positive, got {v}"
         ));
     }
 
@@ -113,15 +109,14 @@ fn validate_start_throughput(v: &str) -> Result<f32, String> {
 fn validate_end_throughput(v: &str) -> Result<f32, String> {
     let v: f32 = v
         .parse()
-        .map_err(|_| format!("end throughput must be a number, got {}", v))?;
+        .map_err(|_| format!("end throughput must be a number, got {v}"))?;
     if !v.is_finite() {
-        return Err(format!("end throughput must be finite, got {}", v));
+        return Err(format!("end throughput must be finite, got {v}"));
     }
 
     if v <= 0. {
         return Err(format!(
-            "end throughput must be strictly positive, got {}",
-            v
+            "end throughput must be strictly positive, got {v}"
         ));
     }
 
@@ -131,15 +126,14 @@ fn validate_end_throughput(v: &str) -> Result<f32, String> {
 fn validate_throughput_step(v: &str) -> Result<f32, String> {
     let v: f32 = v
         .parse()
-        .map_err(|_| format!("throughput step must be a number, got {}", v))?;
+        .map_err(|_| format!("throughput step must be a number, got {v}"))?;
     if !v.is_finite() {
-        return Err(format!("throughput step must be finite, got {}", v));
+        return Err(format!("throughput step must be finite, got {v}"));
     }
 
     if v < 0. {
         return Err(format!(
-            "throughput step must be above or equal to 0, got {}",
-            v
+            "throughput step must be above or equal to 0, got {v}"
         ));
     }
 
@@ -149,15 +143,14 @@ fn validate_throughput_step(v: &str) -> Result<f32, String> {
 fn validate_throughput_multiplier(v: &str) -> Result<f32, String> {
     let v: f32 = v
         .parse()
-        .map_err(|_| format!("throughput multiplier must be a number, got {}", v))?;
+        .map_err(|_| format!("throughput multiplier must be a number, got {v}"))?;
     if !v.is_finite() {
-        return Err(format!("throughput multiplier must be finite, got {}", v));
+        return Err(format!("throughput multiplier must be finite, got {v}"));
     }
 
     if v < 1. {
         return Err(format!(
-            "throughput multiplier must be above or equal to 1, got {}",
-            v
+            "throughput multiplier must be above or equal to 1, got {v}"
         ));
     }
 
@@ -167,10 +160,10 @@ fn validate_throughput_multiplier(v: &str) -> Result<f32, String> {
 fn validate_result_directory(v: &str) -> Result<PathBuf, String> {
     let v: PathBuf = v
         .parse()
-        .map_err(|_| format!("result directory must be a path, got {}", v))?;
+        .map_err(|_| format!("result directory must be a path, got {v}"))?;
 
     if !v.is_dir() {
-        return Err(format!("result directory is not a directory"));
+        return Err("result directory is not a directory".to_string());
     }
 
     Ok(v)
@@ -214,7 +207,7 @@ async fn main() -> Result<()> {
 
 async fn run<Fut>(cli: &Cli, run_worker: &impl Fn() -> Fut, result_directory: &Path) -> Result<()>
 where
-    Fut: Future<Output = Result<Duration>>,
+    Fut: Future<Output = Result<Duration>> + Send,
 {
     let throughputs = get_all_throughputs(cli);
     let multi_progress = MultiProgress::new();
@@ -226,18 +219,18 @@ where
 
     let mut progress_bars = vec![];
     for throughput in &throughputs {
-        let estimated_request_count = cli.test_duration.as_secs_f32() * (*throughput as f32);
+        let estimated_request_count = cli.test_duration.as_secs_f32() * *throughput;
 
         let pb = multi_progress.add(ProgressBar::new(estimated_request_count as u64));
         pb.set_style(progress_style.clone());
-        pb.set_message(format!("{} req/s", throughput));
+        pb.set_message(format!("{throughput} req/s"));
         progress_bars.push(pb);
     }
 
-    for (throughput, mut pb) in throughputs.into_iter().zip(progress_bars.into_iter()) {
+    for (throughput, pb) in throughputs.into_iter().zip(progress_bars.into_iter()) {
         let deadline = tokio::time::Instant::now() + cli.test_duration;
         run_with_throughput(
-            &mut pb,
+            &pb,
             cli,
             throughput,
             deadline,
@@ -261,11 +254,11 @@ fn get_all_throughputs(cli: &Cli) -> Vec<f32> {
     let mut throughputs = vec![];
     let mut i = 0_usize;
     loop {
-        let throughput = if mul == 1. {
-            from + step * (i as f32)
+        let throughput = if (mul - 1.).abs() < f32::EPSILON {
+            step.mul_add(i as f32, from)
         } else {
             let r = step / (1. - mul);
-            mul.powf(i as f32) * (from - r) + r
+            mul.powf(i as f32).mul_add(from - r, r)
         };
 
         if throughput > cli.end_throughput {
@@ -280,7 +273,7 @@ fn get_all_throughputs(cli: &Cli) -> Vec<f32> {
 }
 
 async fn run_with_throughput<Fut>(
-    pb: &mut ProgressBar,
+    pb: &ProgressBar,
     cli: &Cli,
     target_throughput: f32,
     deadline: tokio::time::Instant,
@@ -288,7 +281,7 @@ async fn run_with_throughput<Fut>(
     result_directory: &Path,
 ) -> Result<()>
 where
-    Fut: Future<Output = Result<Duration>>,
+    Fut: Future<Output = Result<Duration>> + Send,
 {
     // trace!(target_throughput, "starting test");
 
@@ -333,7 +326,7 @@ where
 
             _ = tokio::time::sleep_until(deadline) => {
                 // trace!("deadline reached, waiting for workers to finish");
-                while let Some(_) = f.next().await {
+                while (f.next().await).is_some() {
                     // trace!(result=?result, "worker finished");
                 }
                 // trace!("all workers finished");
@@ -354,9 +347,9 @@ where
 
     write_report(result_directory, target_throughput, &durations)
         .await
-        .map_err(Error::WriteReportError)?;
+        .map_err(Error::WriteReport)?;
 
-    let avg_duration = durations.iter().sum::<Duration>() / durations.len() as u32;
+    let avg_duration = durations.iter().sum::<Duration>() / u32::try_from(durations.len()).unwrap_or(1);
     let min_duration = durations.iter().min().unwrap();
     let max_duration = durations.iter().max().unwrap();
 
@@ -394,18 +387,18 @@ async fn write_report(
     let mut v = Vec::new();
     let mut encoder = Encoder::new(&mut v, 0)?;
 
-    encoder.write("[".as_bytes())?;
+    encoder.write_all(b"[")?;
 
     let mut has_previous_value = false;
     for duration in durations {
         if has_previous_value {
-            encoder.write(",".as_bytes())?;
+            encoder.write_all(b",")?;
         }
-        encoder.write(format!("{}", duration.as_nanos()).as_bytes())?;
+        encoder.write_all(format!("{}", duration.as_nanos()).as_bytes())?;
         has_previous_value = true;
     }
 
-    encoder.write("]".as_bytes())?;
+    encoder.write_all(b"]")?;
     encoder.finish()?;
 
     let mut f = File::create(file_path).await?;
@@ -442,7 +435,7 @@ async fn call_ext_proc(channel: Channel) -> Result<()> {
 
     // trace!(processing_response=?processing_response, "first processing_response received");
 
-    let Ok(_) = tx.send(response_headers::create_processing_request()).await else {
+    let Ok(()) = tx.send(response_headers::create_processing_request()).await else {
         // trace!("cannot send second request, stream is closed");
         return Ok(());
     };
@@ -471,13 +464,16 @@ enum Error {
     )]
     CouldNotReachTargetThroughput(f32, f32, f32),
     #[error("failed to write report: {0}")]
-    WriteReportError(std::io::Error),
+    WriteReport(std::io::Error),
 }
 
 mod request_headers {
-    use super::*;
+    use crate::generated::envoy::{
+        config::core::v3::{HeaderMap, HeaderValue},
+        service::ext_proc::v3::{HttpHeaders, ProcessingRequest, processing_request::Request},
+    };
 
-    pub(crate) fn create_processing_request() -> ProcessingRequest {
+    pub fn create_processing_request() -> ProcessingRequest {
         ProcessingRequest {
             request: Some(Request::RequestHeaders(create_http_headers())),
             ..Default::default()
@@ -508,9 +504,12 @@ mod request_headers {
 }
 
 mod response_headers {
-    use super::*;
+    use crate::generated::envoy::{
+        config::core::v3::{HeaderMap, HeaderValue},
+        service::ext_proc::v3::{HttpHeaders, ProcessingRequest, processing_request::Request},
+    };
 
-    pub(crate) fn create_processing_request() -> ProcessingRequest {
+    pub fn create_processing_request() -> ProcessingRequest {
         ProcessingRequest {
             request: Some(Request::ResponseHeaders(create_http_headers())),
             ..Default::default()

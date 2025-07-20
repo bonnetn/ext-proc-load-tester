@@ -2,6 +2,12 @@
 name = "ext-proc-load-tester"
 version = "0.1.0"
 edition = "2024"
+description = "A load testing tool for Envoy external processing servers"
+license = "MIT"
+repository = "https://github.com/bonnetn/ext-proc-load-tester"
+readme = "README.md"
+keywords = ["load-testing", "envoy", "grpc", "performance"]
+categories = ["development-tools", "web-programming"]
 
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
