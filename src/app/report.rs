@@ -1,34 +1,37 @@
-use std::{io::Write as _, path::Path, time::Duration};
+use std::{path::Path, time::Duration};
 
-use tokio::{fs::File, io::AsyncWriteExt as _};
-use zstd::Encoder;
+use tokio::{
+    fs::File,
+    io::{AsyncWriteExt as _, BufWriter},
+};
 
 pub(crate) async fn write(
     directory_path: &Path,
     target_throughput: u64,
     durations: &[Duration],
 ) -> Result<(), std::io::Error> {
-    let file_name = format!("durations_{target_throughput}.json.zst");
+    let file_name = format!("durations_{target_throughput}.json");
     let file_path = directory_path.join(file_name);
 
-    let mut encoder = Encoder::new(Vec::new(), 0)?;
+    let f = File::create(file_path).await?;
+    let mut writer = BufWriter::new(f);
 
-    encoder.write_all(b"[")?;
+    writer.write_all(b"[").await?;
 
     let mut has_previous_value = false;
     for duration in durations {
         if has_previous_value {
-            encoder.write_all(b",")?;
+            writer.write_all(b",").await?;
         }
-        encoder.write_all(format!("{}", duration.as_nanos()).as_bytes())?;
+        writer
+            .write_all(format!("{}", duration.as_nanos()).as_bytes())
+            .await?;
         has_previous_value = true;
     }
 
-    encoder.write_all(b"]")?;
-    let v = encoder.finish()?;
+    writer.write_all(b"]").await?;
 
-    let mut f = File::create(file_path).await?;
-    f.write_all(&v).await?;
+    writer.flush().await?;
 
     Ok(())
 }

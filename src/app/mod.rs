@@ -57,7 +57,7 @@ async fn load_test<Fut>(
 where
     Fut: Future<Output = Result<Duration>> + Send,
 {
-    let throughputs = get_all_throughputs(cli);
+    let throughputs = get_all_throughputs(cli)?;
     let multi_progress = MultiProgress::new();
     let progress_style = ProgressStyle::with_template(
         "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
@@ -84,7 +84,7 @@ where
     Ok(())
 }
 
-fn get_all_throughputs(cli: &Cli) -> Vec<u64> {
+fn get_all_throughputs(cli: &Cli) -> Result<Vec<u64>> {
     let u0 = cli.start_throughput;
     let b = cli.throughput_step;
     let a = cli.throughput_multiplier;
@@ -97,9 +97,12 @@ fn get_all_throughputs(cli: &Cli) -> Vec<u64> {
             value *= a;
         }
         value += b;
+        if throughputs.len() > 100 {
+            return Err(Error::TooManyThroughputsToTest);
+        }
     }
 
-    throughputs
+    Ok(throughputs)
 }
 
 async fn run_with_throughput<Fut>(

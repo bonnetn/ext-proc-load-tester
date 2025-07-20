@@ -24,4 +24,6 @@ pub(crate) enum Error {
     WriteReport(std::io::Error),
     #[error("estimated request count is too large: {0}")]
     EstimatedRequestCountTooLarge(TryFromIntError),
+    #[error("selected parameters would result in too many throughputs being tested")]
+    TooManyThroughputsToTest,
 }
