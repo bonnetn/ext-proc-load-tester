@@ -92,9 +92,9 @@
                     const percentile = (1 - p) * 100;
                     const rawNs = trace.y[i];
                     const scaledVal = (rawNs * factor).toFixed(3);
-                    return `Percentile: ${percentile.toFixed(3)}%<br>` +
-                        `Latency: ${scaledVal} ${unit}<br>` +
-                        `Original: ${rawNs} ns`;
+                    return `File: ${trace.name}<br>` +
+                        `Percentile: ${percentile.toFixed(3)}%<br>` +
+                        `Latency: ${scaledVal} ${unit}`;
                 }),
                 hoverinfo: 'text',
                 name: trace.name,
