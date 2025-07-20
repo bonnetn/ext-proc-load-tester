@@ -38,7 +38,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: build-release
+    needs: macos-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
