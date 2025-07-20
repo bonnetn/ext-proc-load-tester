@@ -51,7 +51,6 @@ jobs:
       - name: Prepare artifact
         run: |
           mkdir artifacts
-          cp target/aarch64-unknown-linux-gnu/release/ext-proc-load-tester artifacts/ext-proc-load-tester-aarch64-unknown-linux-gnu
           cp target/x86_64-unknown-linux-gnu/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-unknown-linux-gnu
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
