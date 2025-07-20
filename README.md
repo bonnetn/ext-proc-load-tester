@@ -19,6 +19,9 @@ cargo run -- grpc://localhost:12345
 # Load test a server listening on a unix socket and write the results to a temporary directory.
 cargo run -- --result-directory "$(mktemp -d)" unix:///tmp/sock
 
-# Custom throughput ramp-up plan: 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 streams per second, with each step lasting 10 seconds.
+# Custom additive throughput ramp-up plan: 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000 streams per second, with each step lasting 10 seconds.
 cargo run -- grpc://localhost:12345 --start-throughput 100 --end-throughput 1000 --throughput-step 100 --test-duration 10
+
+# Custom multiplicative throughput ramp-up plan: 100, 200, 400, 800, 1600, 3200 streams per second, with each step lasting 10 seconds.
+cargo run -- grpc://localhost:12345 --start-throughput 100 --end-throughput 1000 --throughput-step 0 --throughput-multiplier 2 --test-duration 10
 ```
