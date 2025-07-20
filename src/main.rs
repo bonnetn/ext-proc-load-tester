@@ -13,6 +13,9 @@
 
 #![allow(clippy::restriction)]
 
+#![feature(custom_inner_attributes)]
+#![clippy::msrv = "1.88.0"]
+
 mod generated;
 
 use std::{
