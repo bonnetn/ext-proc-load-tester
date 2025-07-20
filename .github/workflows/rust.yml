@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v3
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features
