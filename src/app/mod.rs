@@ -15,7 +15,7 @@ use crate::{
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::mpsc, time::MissedTickBehavior};
 use tokio_stream::{StreamExt as _, wrappers::ReceiverStream};
 use tonic::transport::Channel;
 
@@ -25,6 +25,9 @@ mod report;
 mod sample_requests;
 
 use error::Result;
+
+// If we managed to send 95% of the expected requests, we consider the test successful.
+const ACCEPTABLE_PERCENTAGE_OF_TARGET_THROUGHPUT: u64 = 95;
 
 pub(crate) async fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -118,6 +121,13 @@ where
 {
     let interval_ns = 1_000_000_000 / target_throughput;
     let mut timer = tokio::time::interval(Duration::from_nanos(interval_ns));
+
+    // NOTE: If the load tester is saturated, it will not be able to keep up with the
+    // interval. We measure at the end of the test, the number of requests ACTUALLY sent
+    // vs the number of requests that were expected to be sent.
+    // Skipping the missed ticks allows us to get a signal on the saturation of the load tester.
+    timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
     let mut f: FuturesUnordered<Fut> = FuturesUnordered::new();
     let mut requests_sent = 0;
 
@@ -170,7 +180,7 @@ where
     let actual_throughput = requests_sent / cli.test_duration.as_secs();
     let percent_of_target_throughput = 100 * requests_sent / target_request_count;
 
-    if percent_of_target_throughput < 90 {
+    if percent_of_target_throughput < ACCEPTABLE_PERCENTAGE_OF_TARGET_THROUGHPUT {
         return Err(Error::CouldNotReachTargetThroughput(
             target_throughput,
             actual_throughput,
@@ -188,12 +198,7 @@ where
     let max_duration = durations.iter().max().unwrap();
 
     pb.finish_with_message(format!(
-        "{} req/s: {} requests, avg: {:?}, min: {:?}, max: {:?}",
-        target_throughput,
-        durations.len(),
-        avg_duration,
-        min_duration,
-        max_duration,
+        "{target_throughput} req/s: {percent_of_target_throughput}% of planned requests sent, avg: {avg_duration:?}, min: {min_duration:?}, max: {max_duration:?}",
     ));
 
     Ok(())
