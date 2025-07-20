@@ -33,6 +33,29 @@
             padding: 10px 15px;
             font-size: 14px;
         }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: right;
+        }
+
+        th {
+            background: #f2f2f2;
+        }
+
+        td:first-child,
+        th:first-child {
+            text-align: left;
+        }
     </style>
 </head>
 
@@ -44,19 +67,34 @@
         <input type="file" id="fileInput" multiple accept=".json">
     </div>
     <div id="plot" style="width: 100%; height: 500px;"></div>
+    <div id="summary"></div>
 
     <script>
         let allTraces = [];
         let globalMaxLatency = 0;
+        let summaryData = [];
 
-        /**
-         * Downsample based on log spacing of tail probability (1 - p)
-         */
+        function computeStats(data) {
+            data.sort((a, b) => a - b);
+            const n = data.length;
+            const min = data[0];
+            const max = data[n - 1];
+            const sum = data.reduce((a, b) => a + b, 0);
+            const avg = sum / n;
+            const p95 = data[Math.floor(n * 0.95)];
+            const p99 = data[Math.floor(n * 0.99)];
+            const variance = data.reduce((a, b) => a + (b - avg) ** 2, 0) / n;
+            const stddev = Math.sqrt(variance);
+            return { count: n, min, max, avg, p95, p99, stddev };
+        }
+
+        function formatValue(value, factor) {
+            return (value * factor).toFixed(3);
+        }
+
         function computeTailCDFLogSpaced(data, maxPoints = 1000) {
             data.sort((a, b) => a - b);
             const n = data.length;
-
-            // Generate log-spaced probabilities between ~1 and ~1/n
             const minTail = 1 / n;
             const maxTail = 1;
             const logMin = Math.log10(minTail);
@@ -65,13 +103,12 @@
             const probs = [];
             const latencies = [];
             for (let i = 0; i < maxPoints; i++) {
-                const logPos = logMax - (i * (logMax - logMin) / (maxPoints - 1)); // decreasing
+                const logPos = logMax - (i * (logMax - logMin) / (maxPoints - 1));
                 const tailProb = Math.pow(10, logPos);
                 const rank = Math.max(0, Math.min(n - 1, Math.floor(n * (1 - tailProb))));
                 probs.push(tailProb);
                 latencies.push(data[rank]);
             }
-
             return { probs, latencies };
         }
 
@@ -82,7 +119,7 @@
             return { factor: 1e-9, unit: 's' };
         }
 
-        function updatePlot() {
+        function updatePlotAndTable() {
             const { factor, unit } = chooseUnit(globalMaxLatency);
 
             const scaledTraces = allTraces.map(trace => ({
@@ -90,8 +127,7 @@
                 y: trace.y.map(v => v * factor),
                 text: trace.x.map((p, i) => {
                     const percentile = (1 - p) * 100;
-                    const rawNs = trace.y[i];
-                    const scaledVal = (rawNs * factor).toFixed(3);
+                    const scaledVal = (trace.y[i] * factor).toFixed(3);
                     return `File: ${trace.name}<br>` +
                         `Percentile: ${percentile.toFixed(3)}%<br>` +
                         `Latency: ${scaledVal} ${unit}`;
@@ -112,6 +148,37 @@
                 },
                 yaxis: { title: `Latency (${unit})` }
             });
+
+            let tableHTML = `<table>
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Count</th>
+                        <th>Min (${unit})</th>
+                        <th>Max (${unit})</th>
+                        <th>Avg (${unit})</th>
+                        <th>P95 (${unit})</th>
+                        <th>P99 (${unit})</th>
+                        <th>StdDev (${unit})</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            summaryData.forEach(row => {
+                tableHTML += `<tr>
+                    <td>${row.name}</td>
+                    <td>${row.count}</td>
+                    <td>${formatValue(row.min, factor)}</td>
+                    <td>${formatValue(row.max, factor)}</td>
+                    <td>${formatValue(row.avg, factor)}</td>
+                    <td>${formatValue(row.p95, factor)}</td>
+                    <td>${formatValue(row.p99, factor)}</td>
+                    <td>${formatValue(row.stddev, factor)}</td>
+                </tr>`;
+            });
+
+            tableHTML += `</tbody></table>`;
+            document.getElementById('summary').innerHTML = tableHTML;
         }
 
         async function handleFiles(fileList) {
@@ -128,6 +195,9 @@
                     continue;
                 }
 
+                const stats = computeStats(latencies);
+                summaryData.push({ name: file.name, ...stats });
+
                 const { probs, latencies: sampledLatencies } = computeTailCDFLogSpaced(latencies);
                 globalMaxLatency = Math.max(globalMaxLatency, ...sampledLatencies);
 
@@ -138,7 +208,7 @@
                 });
             }
 
-            updatePlot();
+            updatePlotAndTable();
         }
 
         // Drag-and-drop anywhere
