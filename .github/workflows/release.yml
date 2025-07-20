@@ -23,6 +23,10 @@ jobs:
           toolchain: stable
           target: ${{matrix.target}}
           override: true
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build release binary
         uses: actions-rs/cargo@v1
         with:
