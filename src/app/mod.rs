@@ -21,6 +21,7 @@ use tonic::transport::Channel;
 
 mod cli;
 pub(crate) mod error;
+mod json;
 mod report;
 mod sample_requests;
 

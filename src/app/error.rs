@@ -26,6 +26,8 @@ pub(crate) enum Error {
     EstimatedRequestCountTooLarge(TryFromIntError),
     #[error("selected parameters would result in too many throughputs being tested")]
     TooManyThroughputsToTest,
+    #[error("failed to parse JSON: {0}")]
+    JsonError(#[from] crate::app::json::Error),
 }
 
 impl Error {
