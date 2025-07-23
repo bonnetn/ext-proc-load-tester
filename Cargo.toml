@@ -8,6 +8,7 @@ repository = "https://github.com/bonnetn/ext-proc-load-tester"
 readme = "README.md"
 keywords = ["load-testing", "envoy", "grpc", "performance"]
 categories = ["development-tools", "web-programming"]
+publish = false
 
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
