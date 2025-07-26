@@ -1,6 +1,7 @@
 name: Release
 on:
   push:
+    branches: ["main"]
     tags:
       - "v*"
 env:
@@ -69,6 +70,7 @@ jobs:
     permissions:
       contents: write
       discussions: write
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -93,6 +95,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Docker meta
         id: meta
@@ -101,13 +104,9 @@ jobs:
           images: |
             ghcr.io/bonnetn/ext-proc-load-tester
           tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=sha
 
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
