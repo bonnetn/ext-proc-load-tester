@@ -47,11 +47,11 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build Intel
-        run: cargo build --release --target x86_64-unknown-linux-gnu --verbose
+        run: cargo build --release --target x86_64-unknown-linux-musl --verbose
       - name: Prepare artifact
         run: |
           mkdir artifacts
-          cp target/x86_64-unknown-linux-gnu/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-musl/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-unknown-linux-musl
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -84,7 +84,7 @@ jobs:
           files: |
             macos-artifacts/ext-proc-load-tester-aarch64-apple-darwin
             macos-artifacts/ext-proc-load-tester-x86_64-apple-darwin
-            linux-artifacts/ext-proc-load-tester-x86_64-unknown-linux-gnu
+            linux-artifacts/ext-proc-load-tester-x86_64-unknown-linux-musl
   build-docker:
     name: Build Docker image
     runs-on: ubuntu-latest
