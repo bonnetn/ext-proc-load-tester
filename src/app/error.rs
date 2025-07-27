@@ -27,3 +27,18 @@ pub(crate) enum Error {
     #[error("selected parameters would result in too many throughputs being tested")]
     TooManyThroughputsToTest,
 }
+
+impl Error {
+    pub(crate) fn exit_code(&self) -> i32 {
+        match *self {
+            Error::FailedToCreateEndpoint(_) => 1,
+            Error::FailedToConnectToEndpoint(_) => 2,
+            Error::FailedToCallExtProc(_) => 3,
+            Error::CannotSendInitialRequest(_) => 4,
+            Error::CouldNotReachTargetThroughput(_, _, _) => 5,
+            Error::WriteReport(_) => 6,
+            Error::EstimatedRequestCountTooLarge(_) => 7,
+            Error::TooManyThroughputsToTest => 8,
+        }
+    }
+}
