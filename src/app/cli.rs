@@ -17,7 +17,7 @@ pub(crate) struct Cli {
     pub(crate) start_throughput: u64,
 
     /// The maximum throughput (requests per second) to use.
-    #[arg(long, default_value_t = 16378, value_parser = validate_end_throughput)]
+    #[arg(long, default_value_t = 100, value_parser = validate_end_throughput)]
     pub(crate) end_throughput: u64,
 
     /// The multiplier for the next throughput level.
@@ -25,7 +25,7 @@ pub(crate) struct Cli {
     pub(crate) throughput_multiplier: u64,
 
     /// The number of requests added to the next throughput level.
-    #[arg(long, default_value_t = 0, value_parser = validate_throughput_step)]
+    #[arg(long, default_value_t = 25, value_parser = validate_throughput_step)]
     pub(crate) throughput_step: u64,
 
     /// The directory to write the results to.
