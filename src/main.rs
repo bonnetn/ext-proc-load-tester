@@ -72,7 +72,10 @@ mod generated;
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = app::run().await {
+    // NOTE: Spawning a task so that the load test is not scheduled on the main thread, and instead
+    // on the worker thread pool.
+    let result = tokio::spawn(app::run()).await.expect("Could not join task");
+    if let Err(e) = result {
         eprintln!("Error: {e}");
         std::process::exit(e.exit_code());
     }
