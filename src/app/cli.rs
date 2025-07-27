@@ -32,6 +32,11 @@ pub(crate) struct Cli {
     /// Defaults to the current working directory.
     #[arg(long, value_parser = validate_result_directory)]
     pub(crate) result_directory: Option<PathBuf>,
+
+    /// A path to a `ProcessingRequest` JSON file.
+    /// If provided, the load tester will use the requests in the file instead of generating them.
+    #[arg(long, value_parser = validate_fixture_path)]
+    pub(crate) request_fixture_path: Option<PathBuf>,
 }
 
 fn validate_test_duration_seconds(v: &str) -> Result<Duration, String> {
@@ -91,6 +96,18 @@ fn validate_result_directory(v: &str) -> Result<PathBuf, String> {
 
     if !v.is_dir() {
         return Err("result directory is not a directory".to_string());
+    }
+
+    Ok(v)
+}
+
+fn validate_fixture_path(v: &str) -> Result<PathBuf, String> {
+    let v: PathBuf = v
+        .parse()
+        .map_err(|_| format!("fixture path must be a path, got {v}"))?;
+
+    if !v.is_file() {
+        return Err("fixture path is not a file".to_string());
     }
 
     Ok(v)

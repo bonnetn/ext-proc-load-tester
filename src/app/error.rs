@@ -26,8 +26,12 @@ pub(crate) enum Error {
     EstimatedRequestCountTooLarge(TryFromIntError),
     #[error("selected parameters would result in too many throughputs being tested")]
     TooManyThroughputsToTest,
-    #[error("failed to parse JSON: {0}")]
-    JsonError(#[from] crate::app::json::Error),
+    #[error("failed to open request fixture: {0}")]
+    FailedToOpenRequestFixture(std::io::Error),
+    #[error("failed to parse request fixture: {0}")]
+    FailedToParseRequestFixture(serde_json::Error),
+    #[error("exactly one of request headers or response headers must be present")]
+    ExactlyOneOfRequestHeadersOrResponseHeadersMustBePresent,
 }
 
 impl Error {

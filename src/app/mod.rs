@@ -1,5 +1,7 @@
 use std::{
     env,
+    fs::File,
+    io::BufReader,
     path::Path,
     time::{Duration, Instant},
 };
@@ -10,7 +12,9 @@ use crate::{
         error::Error,
         sample_requests::{request_headers, response_headers},
     },
-    generated::envoy::service::ext_proc::v3::external_processor_client::ExternalProcessorClient,
+    generated::envoy::service::ext_proc::v3::{
+        ProcessingRequest, external_processor_client::ExternalProcessorClient,
+    },
 };
 use clap::Parser;
 use futures::stream::FuturesUnordered;
@@ -21,7 +25,7 @@ use tonic::transport::Channel;
 
 mod cli;
 pub(crate) mod error;
-mod json;
+mod fixture;
 mod report;
 mod sample_requests;
 
@@ -48,6 +52,18 @@ pub(crate) async fn run() -> Result<()> {
     let result_directory = match &cli.result_directory {
         Some(dir) => Path::new(dir),
         None => &env::current_dir().expect("current directory can be read"),
+    };
+
+    let _request_fixture = match &cli.request_fixture_path {
+        Some(path) => {
+            let file = File::open(path).map_err(Error::FailedToOpenRequestFixture)?;
+            let reader = BufReader::new(file);
+            let dto: fixture::json::ProcessingRequest =
+                serde_json::from_reader(reader).map_err(Error::FailedToParseRequestFixture)?;
+            let request_fixture: ProcessingRequest = dto.try_into()?;
+            request_fixture
+        }
+        None => todo!(""),
     };
 
     load_test(&cli, &worker, result_directory).await
