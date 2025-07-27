@@ -63,7 +63,7 @@ pub(crate) async fn run() -> Result<()> {
             let request_fixture: ProcessingRequest = dto.try_into()?;
             request_fixture
         }
-        None => todo!(""),
+        None => request_headers::create_processing_request(),
     };
 
     load_test(&cli, &worker, result_directory).await

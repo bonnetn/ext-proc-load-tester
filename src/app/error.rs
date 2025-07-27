@@ -26,11 +26,13 @@ pub(crate) enum Error {
     EstimatedRequestCountTooLarge(TryFromIntError),
     #[error("selected parameters would result in too many throughputs being tested")]
     TooManyThroughputsToTest,
-    #[error("failed to open request fixture: {0}")]
+    #[error("failed to open request fixture file: {0}")]
     FailedToOpenRequestFixture(std::io::Error),
     #[error("failed to parse request fixture: {0}")]
     FailedToParseRequestFixture(serde_json::Error),
-    #[error("exactly one of request headers or response headers must be present")]
+    #[error(
+        "exactly one of request headers or response headers must be present in the request fixture"
+    )]
     ExactlyOneOfRequestHeadersOrResponseHeadersMustBePresent,
 }
 
@@ -45,6 +47,9 @@ impl Error {
             Error::WriteReport(_) => 6,
             Error::EstimatedRequestCountTooLarge(_) => 7,
             Error::TooManyThroughputsToTest => 8,
+            Error::FailedToOpenRequestFixture(_) => 9,
+            Error::FailedToParseRequestFixture(_) => 10,
+            Error::ExactlyOneOfRequestHeadersOrResponseHeadersMustBePresent => 11,
         }
     }
 }
