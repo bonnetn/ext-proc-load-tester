@@ -1,6 +1,11 @@
 use std::{env, path::Path, time::Duration};
 
-use crate::app::{cli::Cli, error::Error, scheduler::Scheduler, worker::GrpcWorker};
+use crate::app::{
+    cli::Cli,
+    error::Error,
+    scheduler::{REPORT_INTERVAL, Scheduler},
+    worker::GrpcWorker,
+};
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use tokio::runtime::Handle;
@@ -34,7 +39,7 @@ pub(crate) async fn run() -> Result<()> {
         workers.push(worker);
     }
 
-    let mut scheduler = Scheduler::new(&workers)?;
+    let mut scheduler = Scheduler::new(&workers, REPORT_INTERVAL)?;
 
     let result_directory = match &cli.result_directory {
         Some(dir) => Path::new(dir),
