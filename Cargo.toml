@@ -17,8 +17,9 @@ indicatif = "0.18.0"
 prost = "0.13.5"
 prost-types = "0.13.5"
 thiserror = "2.0.12"
-tokio = { version = "1.46.1", features = ["full"] }
+tokio = { version = "1.46.1", features = ["full", "test-util"] }
 tokio-stream = "0.1.17"
+tokio-util = "0.7.16"
 tonic = "0.13.1"
 
 [build-dependencies]
