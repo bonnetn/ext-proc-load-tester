@@ -16,7 +16,7 @@ use crate::app::{
     worker::Worker,
 };
 
-const REPORT_INTERVAL: Duration = Duration::from_millis(250);
+pub(crate) const REPORT_INTERVAL: Duration = Duration::from_millis(250);
 
 /// A scheduler that runs a set of `Worker` instances at a fixed overall rate,
 /// distributing execution across multiple Tokio tasks to achieve true parallelism.
@@ -35,6 +35,7 @@ const REPORT_INTERVAL: Duration = Duration::from_millis(250);
 pub(crate) struct Scheduler<W> {
     workers: Vec<W>,
     concurrency: NonZeroU32,
+    reporter_interval: Duration,
 }
 
 impl<W> Scheduler<W>
@@ -44,7 +45,7 @@ where
     /// Constructs a new `Scheduler` from the provided list of workers.
     /// The number of workers defines the concurrency level.
     #[allow(dead_code)]
-    pub(crate) fn new(workers: &[W]) -> Result<Self> {
+    pub(crate) fn new(workers: &[W], reporter_interval: Duration) -> Result<Self> {
         let worker_count = workers
             .len()
             .try_into()
@@ -58,6 +59,7 @@ where
         Ok(Self {
             workers,
             concurrency,
+            reporter_interval,
         })
     }
 
@@ -110,13 +112,16 @@ where
             let progress_reporter = progress_reporter.clone();
 
             let _handle = set.spawn(run_loop(
-                start_time,
-                barrier.clone(),
+                LoopParams {
+                    start: start_time,
+                    barrier: barrier.clone(),
+                    interval: loop_interval,
+                    cancelation_token: cancelation_token.clone(),
+                    size_hint,
+                    reporter_interval: self.reporter_interval,
+                },
                 worker.clone(),
-                loop_interval,
-                cancelation_token.clone(),
-                size_hint,
-                progress_reporter,
+                progress_reporter.clone(),
             ));
         }
 
@@ -134,18 +139,32 @@ where
     }
 }
 
-/// Internal per-worker loop that schedules and runs the worker periodically.
-async fn run_loop(
+struct LoopParams {
     start: Instant,
     barrier: Arc<Barrier>,
-    worker: impl Worker,
     interval: Duration,
     cancelation_token: CancellationToken,
     size_hint: usize,
+    reporter_interval: Duration,
+}
+
+/// Internal per-worker loop that schedules and runs the worker periodically.
+async fn run_loop(
+    params: LoopParams,
+    worker: impl Worker,
     progress_reporter: impl ProgressReporter,
 ) -> Result<WorkerResult> {
+    let LoopParams {
+        start,
+        barrier,
+        interval,
+        cancelation_token,
+        size_hint,
+        reporter_interval,
+    } = params;
+
     let mut worker_interval = create_interval(start, interval);
-    let mut reporter_interval = create_interval(start, REPORT_INTERVAL);
+    let mut reporter_interval = create_interval(start, reporter_interval);
 
     let mut futures = FuturesUnordered::new();
     let mut durations = Vec::with_capacity(size_hint);
@@ -361,7 +380,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_worker_scheduler() {
         let w = workers();
-        let mut scheduler = Scheduler::new(&w).unwrap();
+        let mut scheduler = Scheduler::new(&w, REPORT_INTERVAL).unwrap();
         let durations = scheduler
             .run(interval(), timeout(), &StubProgressReporter::default())
             .await
@@ -384,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_worker_scheduler_new_with_empty_workers() {
-        let result = Scheduler::<Arc<StubWorker>>::new(&[]);
+        let result = Scheduler::<Arc<StubWorker>>::new(&[], REPORT_INTERVAL);
         assert!(result.is_err());
         match result.unwrap_err() {
             Error::ConcurrencyMustBeGreaterThanZero => {}
@@ -395,7 +414,7 @@ mod tests {
     #[test]
     fn test_worker_scheduler_new_with_single_worker() {
         let workers = vec![Arc::new(StubWorker::new(0))];
-        let result = Scheduler::new(&workers);
+        let result = Scheduler::new(&workers, REPORT_INTERVAL);
         assert!(result.is_ok());
         // Test that we can create a scheduler with a single worker successfully
         // The behavior is verified by the fact that new() returns Ok
@@ -406,7 +425,7 @@ mod tests {
         // Test that we can create a scheduler with many workers successfully
         let workers: Vec<Arc<StubWorker>> =
             (0..1000).map(|i| Arc::new(StubWorker::new(i))).collect();
-        let result = Scheduler::new(&workers);
+        let result = Scheduler::new(&workers, REPORT_INTERVAL);
         assert!(result.is_ok());
         // The behavior is verified by the fact that new() returns Ok
     }
@@ -414,7 +433,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_worker_scheduler_handles_fast_intervals() {
         let w = workers();
-        let mut scheduler = Scheduler::new(&w).unwrap();
+        let mut scheduler = Scheduler::new(&w, REPORT_INTERVAL).unwrap();
         let short_interval = Duration::from_millis(10);
         let short_timeout = Duration::from_millis(100);
 
@@ -438,7 +457,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_worker_scheduler_handles_slow_intervals() {
         let w = workers();
-        let mut scheduler = Scheduler::new(&w).unwrap();
+        let mut scheduler = Scheduler::new(&w, REPORT_INTERVAL).unwrap();
         let long_interval = Duration::from_millis(1000);
         let short_timeout = Duration::from_millis(500);
 
@@ -465,7 +484,7 @@ mod tests {
             .map(|i| Arc::new(ErrorWorker::new(i, i == 2))) // Worker 2 will error
             .collect();
 
-        let mut scheduler = Scheduler::new(&error_workers).unwrap();
+        let mut scheduler = Scheduler::new(&error_workers, REPORT_INTERVAL).unwrap();
         let result = scheduler
             .run(interval(), timeout(), &StubProgressReporter::default())
             .await;
@@ -491,7 +510,7 @@ mod tests {
             })
             .collect();
 
-        let mut scheduler = Scheduler::new(&slow_workers).unwrap();
+        let mut scheduler = Scheduler::new(&slow_workers, REPORT_INTERVAL).unwrap();
         let durations = scheduler
             .run(interval(), timeout(), &StubProgressReporter::default())
             .await
@@ -507,7 +526,7 @@ mod tests {
             .map(|i| Arc::new(SlowWorker::new(i, Duration::from_millis(200)))) // Very slow workers
             .collect();
 
-        let mut scheduler = Scheduler::new(&slow_workers).unwrap();
+        let mut scheduler = Scheduler::new(&slow_workers, REPORT_INTERVAL).unwrap();
         let short_interval = Duration::from_millis(50); // Fast interval
         let timeout = Duration::from_millis(1000);
 
@@ -524,7 +543,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_worker_scheduler_respects_timeout() {
         let w = workers();
-        let mut scheduler = Scheduler::new(&w).unwrap();
+        let mut scheduler = Scheduler::new(&w, REPORT_INTERVAL).unwrap();
 
         // Use a very short timeout to test timeout behavior
         let very_short_timeout = Duration::from_millis(1);
@@ -555,7 +574,7 @@ mod tests {
         let many_workers: Vec<Arc<StubWorker>> =
             (0..100).map(|i| Arc::new(StubWorker::new(i))).collect();
 
-        let mut scheduler = Scheduler::new(&many_workers).unwrap();
+        let mut scheduler = Scheduler::new(&many_workers, REPORT_INTERVAL).unwrap();
         let durations = scheduler
             .run(interval(), timeout(), &StubProgressReporter::default())
             .await
@@ -568,7 +587,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_worker_scheduler_work_distribution() {
         let w = workers();
-        let mut scheduler = Scheduler::new(&w).unwrap();
+        let mut scheduler = Scheduler::new(&w, REPORT_INTERVAL).unwrap();
         let durations = scheduler
             .run(interval(), timeout(), &StubProgressReporter::default())
             .await
@@ -592,7 +611,7 @@ mod tests {
             .map(|i| Arc::new(SlowWorker::new(i, Duration::from_millis(150)))) // 150ms per task
             .collect();
 
-        let mut scheduler = Scheduler::new(&slow_workers).unwrap();
+        let mut scheduler = Scheduler::new(&slow_workers, REPORT_INTERVAL).unwrap();
         let short_interval = Duration::from_millis(50); // 50ms interval
         let test_timeout = Duration::from_millis(1000); // 1 second test
 
@@ -656,7 +675,41 @@ mod tests {
             "Should complete at least 4 tasks total, but only completed {total_completed}",
         );
     }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_progress_reporter() {
+        // Use fast workers that complete quickly relative to the interval
+        let fast_workers: Vec<Arc<StubWorker>> =
+            (0..4).map(|i| Arc::new(StubWorker::new(i))).collect();
+
+        // Very small report interval to make sure that the stub has the latest value.
+        let reporter_interval = Duration::from_millis(10);
+
+        let mut scheduler = Scheduler::new(&fast_workers, reporter_interval).unwrap();
+        let progress_reporter = StubProgressReporter::default();
+
+        // Use a longer interval and timeout so tasks have time to complete and be reported
+        let test_interval = Duration::from_millis(200);
+        let test_timeout = Duration::from_millis(2100);
+
+        let _durations = scheduler
+            .run(test_interval, test_timeout, &progress_reporter)
+            .await
+            .unwrap();
+
+        // Verify that the progress reporter was called
+        let reported_amount = progress_reporter.amount.load(Ordering::Relaxed);
+        assert!(
+            reported_amount > 0,
+            "Progress reporter should have been called"
+        );
+
+        // Verify that the reported amount exactly matches the total completed tasks
+        assert_eq!(
+            reported_amount as usize, 10,
+            "Progress reporter should report exactly the same number of completed tasks"
+        );
+    }
 }
 
 // TODO: Test requests sent.
-// TODO: Test reporter.
