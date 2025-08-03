@@ -1,6 +1,7 @@
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use futures::stream::FuturesUnordered;
+use indicatif::ProgressBar;
 use tokio::{
     select,
     sync::Barrier,
@@ -14,6 +15,8 @@ use crate::app::{
     error::{Error, Result},
     worker::Worker,
 };
+
+const REPORT_INTERVAL: Duration = Duration::from_millis(250);
 
 /// A scheduler that runs a set of `Worker` instances at a fixed overall rate,
 /// distributing execution across multiple Tokio tasks to achieve true parallelism.
@@ -76,7 +79,8 @@ where
         &mut self,
         interval: Duration,
         timeout: Duration,
-    ) -> Result<Vec<Vec<Duration>>> {
+        progress_reporter: &impl ProgressReporter,
+    ) -> Result<Vec<WorkerResult>> {
         let start = Instant::now();
 
         let barrier = Arc::new(Barrier::new(self.workers.len() + 1));
@@ -103,6 +107,8 @@ where
                 .try_into()
                 .map_err(Error::EstimatedRequestCountTooLarge)?;
 
+            let progress_reporter = progress_reporter.clone();
+
             let _handle = set.spawn(run_loop(
                 start_time,
                 barrier.clone(),
@@ -110,6 +116,7 @@ where
                 loop_interval,
                 cancelation_token.clone(),
                 size_hint,
+                progress_reporter,
             ));
         }
 
@@ -135,25 +142,30 @@ async fn run_loop(
     interval: Duration,
     cancelation_token: CancellationToken,
     size_hint: usize,
-) -> Result<Vec<Duration>> {
-    let mut interval = tokio::time::interval_at(start, interval);
-
-    // NOTE: If the load tester is saturated, it will not be able to keep up with the
-    // interval. We measure at the end of the test, the number of requests ACTUALLY sent
-    // vs the number of requests that were expected to be sent.
-    // Skipping the missed ticks allows us to get a signal on the saturation of the load tester.
-    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    progress_reporter: impl ProgressReporter,
+) -> Result<WorkerResult> {
+    let mut worker_interval = create_interval(start, interval);
+    let mut reporter_interval = create_interval(start, REPORT_INTERVAL);
 
     let mut futures = FuturesUnordered::new();
     let mut durations = Vec::with_capacity(size_hint);
 
     let _ = barrier.wait().await;
+    let mut request_sent = 0_u64;
+
+    let mut last_reported = 0_usize;
 
     loop {
         select! {
-            _ = interval.tick() => {
+            _ = worker_interval.tick() => {
                 // Interval ticked, time to spin a new worker.
                 futures.push(run_with_duration(&worker));
+                request_sent += 1;
+            }
+            _ = reporter_interval.tick() => {
+                let v = durations.len();
+                progress_reporter.report(v - last_reported);
+                last_reported = v;
             }
             result = futures.next() => {
                 match result {
@@ -169,14 +181,23 @@ async fn run_loop(
                         // - the next interval tick to start new work, or
                         // - cancellation to terminate the loop.
                         select! {
-                            _ = interval.tick() => {
+                            _ = worker_interval.tick() => {
                                 // Interval ticked, time to spin a new worker.
                                 futures.push(run_with_duration(&worker));
+                                request_sent += 1;
+                            }
+                            _ = reporter_interval.tick() => {
+                                let v = durations.len();
+                                progress_reporter.report(v - last_reported);
+                                last_reported = v;
                             }
                             () = cancelation_token.cancelled() => {
                                 // Cancelation token was cancelled, return the durations.
                                 // NOTE: No need to wait for the workers to finish, as we know they are not running.
-                                return Ok(durations);
+                                return Ok(WorkerResult {
+                                    request_sent,
+                                    durations,
+                                });
                             }
                         }
 
@@ -186,10 +207,31 @@ async fn run_loop(
             () = cancelation_token.cancelled() => {
                 // Cancelation token was cancelled, wait for the workers to finish.
                 while futures.next().await.is_some() {}
-                return Ok(durations);
+                return Ok(WorkerResult {
+                    request_sent,
+                    durations,
+                });
             }
         }
     }
+}
+
+fn create_interval(start: Instant, interval: Duration) -> tokio::time::Interval {
+    let mut interval = tokio::time::interval_at(start, interval);
+
+    // NOTE: If the load tester is saturated, it will not be able to keep up with the
+    // interval. We measure at the end of the test, the number of requests ACTUALLY sent
+    // vs the number of requests that were expected to be sent.
+    // Skipping the missed ticks allows us to get a signal on the saturation of the load tester.
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    interval
+}
+
+#[derive(Debug)]
+pub(crate) struct WorkerResult {
+    pub(crate) request_sent: u64,
+    pub(crate) durations: Vec<Duration>,
 }
 
 /// Runs the given worker and measures its execution time.
@@ -197,6 +239,16 @@ async fn run_with_duration(worker: &impl Worker) -> Result<Duration> {
     let start = Instant::now();
     worker.run().await?;
     Ok(start.elapsed())
+}
+
+pub(crate) trait ProgressReporter: Send + Sync + Clone + 'static {
+    fn report(&self, amount: usize) -> ();
+}
+
+impl ProgressReporter for ProgressBar {
+    fn report(&self, amount: usize) {
+        self.inc(amount.try_into().unwrap());
+    }
 }
 
 #[cfg(test)]
@@ -207,6 +259,19 @@ mod tests {
     use super::*;
 
     const WORKER_COUNT: usize = 8;
+
+    #[derive(Debug, Clone, Default)]
+    struct StubProgressReporter {
+        pub amount: Arc<AtomicU32>,
+    }
+
+    impl ProgressReporter for StubProgressReporter {
+        fn report(&self, amount: usize) {
+            let _ = self
+                .amount
+                .fetch_add(amount.try_into().unwrap(), Ordering::Relaxed);
+        }
+    }
 
     fn workers() -> Vec<Arc<StubWorker>> {
         (0..WORKER_COUNT)
@@ -297,7 +362,10 @@ mod tests {
     async fn test_worker_scheduler() {
         let w = workers();
         let mut scheduler = Scheduler::new(&w).unwrap();
-        let durations = scheduler.run(interval(), timeout()).await.unwrap();
+        let durations = scheduler
+            .run(interval(), timeout(), &StubProgressReporter::default())
+            .await
+            .unwrap();
 
         let calls = w
             .iter()
@@ -305,7 +373,10 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(calls, vec![13, 13, 13, 13, 12, 12, 12, 12,]);
-        let mut result = durations.iter().map(Vec::len).collect::<Vec<_>>();
+        let mut result = durations
+            .iter()
+            .map(|r| r.durations.len())
+            .collect::<Vec<_>>();
         result.sort_unstable(); // NOTE: Order is not guaranteed, so we sort it.
 
         assert_eq!(result, vec![12, 12, 12, 12, 13, 13, 13, 13,]);
@@ -347,7 +418,14 @@ mod tests {
         let short_interval = Duration::from_millis(10);
         let short_timeout = Duration::from_millis(100);
 
-        let durations = scheduler.run(short_interval, short_timeout).await.unwrap();
+        let durations = scheduler
+            .run(
+                short_interval,
+                short_timeout,
+                &StubProgressReporter::default(),
+            )
+            .await
+            .unwrap();
 
         // Should handle fast intervals successfully
         assert!(!durations.is_empty());
@@ -364,7 +442,14 @@ mod tests {
         let long_interval = Duration::from_millis(1000);
         let short_timeout = Duration::from_millis(500);
 
-        let durations = scheduler.run(long_interval, short_timeout).await.unwrap();
+        let durations = scheduler
+            .run(
+                long_interval,
+                short_timeout,
+                &StubProgressReporter::default(),
+            )
+            .await
+            .unwrap();
 
         // Should handle slow intervals successfully
         assert!(durations.len() < 100);
@@ -381,7 +466,9 @@ mod tests {
             .collect();
 
         let mut scheduler = Scheduler::new(&error_workers).unwrap();
-        let result = scheduler.run(interval(), timeout()).await;
+        let result = scheduler
+            .run(interval(), timeout(), &StubProgressReporter::default())
+            .await;
 
         // Should propagate errors from workers
         assert!(result.is_err());
@@ -405,7 +492,10 @@ mod tests {
             .collect();
 
         let mut scheduler = Scheduler::new(&slow_workers).unwrap();
-        let durations = scheduler.run(interval(), timeout()).await.unwrap();
+        let durations = scheduler
+            .run(interval(), timeout(), &StubProgressReporter::default())
+            .await
+            .unwrap();
 
         // Should handle slow workers gracefully
         assert!(!durations.is_empty());
@@ -421,7 +511,10 @@ mod tests {
         let short_interval = Duration::from_millis(50); // Fast interval
         let timeout = Duration::from_millis(1000);
 
-        let durations = scheduler.run(short_interval, timeout).await.unwrap();
+        let durations = scheduler
+            .run(short_interval, timeout, &StubProgressReporter::default())
+            .await
+            .unwrap();
 
         // Should handle saturation gracefully by skipping missed ticks
         assert!(!durations.is_empty());
@@ -435,7 +528,14 @@ mod tests {
 
         // Use a very short timeout to test timeout behavior
         let very_short_timeout = Duration::from_millis(1);
-        let durations = scheduler.run(interval(), very_short_timeout).await.unwrap();
+        let durations = scheduler
+            .run(
+                interval(),
+                very_short_timeout,
+                &StubProgressReporter::default(),
+            )
+            .await
+            .unwrap();
 
         // Should respect the timeout and stop early
         assert!(durations.len() < 10);
@@ -456,7 +556,10 @@ mod tests {
             (0..100).map(|i| Arc::new(StubWorker::new(i))).collect();
 
         let mut scheduler = Scheduler::new(&many_workers).unwrap();
-        let durations = scheduler.run(interval(), timeout()).await.unwrap();
+        let durations = scheduler
+            .run(interval(), timeout(), &StubProgressReporter::default())
+            .await
+            .unwrap();
 
         // Should complete successfully with high concurrency
         assert!(!durations.is_empty());
@@ -466,14 +569,20 @@ mod tests {
     async fn test_worker_scheduler_work_distribution() {
         let w = workers();
         let mut scheduler = Scheduler::new(&w).unwrap();
-        let durations = scheduler.run(interval(), timeout()).await.unwrap();
+        let durations = scheduler
+            .run(interval(), timeout(), &StubProgressReporter::default())
+            .await
+            .unwrap();
 
         // Verify that work was distributed across workers
         let total_calls: u32 = w.iter().map(|w| w.triggers.load(Ordering::Relaxed)).sum();
         assert!(total_calls > 0, "Work should be distributed");
 
         // Verify the expected total durations
-        assert_eq!(durations.iter().flatten().count(), 100);
+        assert_eq!(
+            durations.iter().map(|r| r.durations.len()).sum::<usize>(),
+            100
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -487,7 +596,14 @@ mod tests {
         let short_interval = Duration::from_millis(50); // 50ms interval
         let test_timeout = Duration::from_millis(1000); // 1 second test
 
-        let durations = scheduler.run(short_interval, test_timeout).await.unwrap();
+        let durations = scheduler
+            .run(
+                short_interval,
+                test_timeout,
+                &StubProgressReporter::default(),
+            )
+            .await
+            .unwrap();
 
         // Verify that tasks were scheduled at the correct interval despite being slow
         // With 4 workers and 50ms interval, each worker should be scheduled every 200ms (4 * 50ms)
@@ -507,7 +623,7 @@ mod tests {
         );
 
         // Verify that the number of completed tasks is reasonable for the time period
-        let total_completed_tasks: usize = durations.iter().map(Vec::len).sum();
+        let total_completed_tasks: usize = durations.iter().map(|r| r.durations.len()).sum();
         assert!(
             total_completed_tasks >= 4,
             "Should complete at least 4 tasks over the test period"
@@ -532,7 +648,8 @@ mod tests {
 
         // Verify that some tasks completed (indicating concurrent execution)
         // If tasks were running sequentially, very few would complete in 1 second
-        let completed_tasks_per_worker: Vec<usize> = durations.iter().map(Vec::len).collect();
+        let completed_tasks_per_worker: Vec<usize> =
+            durations.iter().map(|r| r.durations.len()).collect();
         let total_completed = completed_tasks_per_worker.iter().sum::<usize>();
         assert!(
             total_completed >= 4,
@@ -540,3 +657,6 @@ mod tests {
         );
     }
 }
+
+// TODO: Test requests sent.
+// TODO: Test reporter.

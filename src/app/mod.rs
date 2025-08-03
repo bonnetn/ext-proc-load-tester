@@ -1,23 +1,9 @@
-use std::{
-    env,
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{env, path::Path, time::Duration};
 
-use crate::{
-    app::{
-        cli::Cli,
-        error::Error,
-        sample_requests::{request_headers, response_headers},
-    },
-    generated::envoy::service::ext_proc::v3::external_processor_client::ExternalProcessorClient,
-};
+use crate::app::{cli::Cli, error::Error, scheduler::Scheduler, worker::GrpcWorker};
 use clap::Parser;
-use futures::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use tokio::{select, sync::mpsc, time::MissedTickBehavior};
-use tokio_stream::{StreamExt as _, wrappers::ReceiverStream};
-use tonic::transport::Channel;
+use tokio::runtime::Handle;
 
 mod cli;
 pub(crate) mod error;
@@ -34,34 +20,35 @@ const ACCEPTABLE_PERCENTAGE_OF_TARGET_THROUGHPUT: u64 = 95;
 pub(crate) async fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    let channel = tonic::transport::Endpoint::new(cli.uri.clone())
-        .map_err(Error::FailedToCreateEndpoint)?
-        .connect()
-        .await
-        .map_err(Error::FailedToConnectToEndpoint)?;
+    let concurrency = Handle::current().metrics().num_workers();
+    let mut workers = vec![];
 
-    let worker = async || {
-        let start = Instant::now();
-        call_ext_proc(channel.clone()).await?;
-        Ok(start.elapsed())
-    };
+    for _ in 0..concurrency {
+        let channel = tonic::transport::Endpoint::new(cli.uri.clone())
+            .map_err(Error::FailedToCreateEndpoint)?
+            .connect()
+            .await
+            .map_err(Error::FailedToConnectToEndpoint)?;
+
+        let worker = GrpcWorker::new(&channel);
+        workers.push(worker);
+    }
+
+    let mut scheduler = Scheduler::new(&workers)?;
 
     let result_directory = match &cli.result_directory {
         Some(dir) => Path::new(dir),
         None => &env::current_dir().expect("current directory can be read"),
     };
 
-    load_test(&cli, &worker, result_directory).await
+    load_test(&cli, &mut scheduler, result_directory).await
 }
 
-async fn load_test<Fut>(
+async fn load_test(
     cli: &Cli,
-    run_worker: &impl Fn() -> Fut,
+    scheduler: &mut Scheduler<GrpcWorker>,
     result_directory: &Path,
-) -> Result<()>
-where
-    Fut: Future<Output = Result<Duration>> + Send,
-{
+) -> Result<()> {
     let throughputs = get_all_throughputs(cli)?;
     let multi_progress = MultiProgress::new();
     let progress_style = ProgressStyle::with_template(
@@ -81,8 +68,7 @@ where
     }
 
     for (throughput, pb) in throughputs.into_iter().zip(progress_bars.into_iter()) {
-        let deadline = Instant::now() + cli.test_duration;
-        run_with_throughput(&pb, cli, throughput, deadline, run_worker, result_directory).await?;
+        run_with_throughput(&pb, cli, throughput, scheduler, result_directory).await?;
         pb.finish();
     }
 
@@ -110,77 +96,30 @@ fn get_all_throughputs(cli: &Cli) -> Result<Vec<u64>> {
     Ok(throughputs)
 }
 
-async fn run_with_throughput<Fut>(
+async fn run_with_throughput(
     pb: &ProgressBar,
     cli: &Cli,
     target_throughput: u64,
-    deadline: Instant,
-    run_worker: impl Fn() -> Fut,
+    scheduler: &mut Scheduler<GrpcWorker>,
     result_directory: &Path,
-) -> Result<()>
-where
-    Fut: Future<Output = Result<Duration>> + Send,
-{
-    let interval_ns = 1_000_000_000 / target_throughput;
-    let mut timer = tokio::time::interval(Duration::from_nanos(interval_ns));
-
-    // NOTE: If the load tester is saturated, it will not be able to keep up with the
-    // interval. We measure at the end of the test, the number of requests ACTUALLY sent
-    // vs the number of requests that were expected to be sent.
-    // Skipping the missed ticks allows us to get a signal on the saturation of the load tester.
-    timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-    let mut f: FuturesUnordered<Fut> = FuturesUnordered::new();
-    let mut requests_sent = 0;
+) -> Result<()> {
+    let interval = Duration::from_secs(1)
+        .checked_div(target_throughput.try_into().unwrap()) // TODO: Make target throughput u32
+        .expect("target throughput must not be 0");
+    let timeout = cli.test_duration;
 
     let target_request_count = cli.test_duration.as_secs() * target_throughput;
 
-    let target_request_count_usize: usize = target_request_count
-        .try_into()
-        .map_err(Error::EstimatedRequestCountTooLarge)?;
+    let results = scheduler.run(interval, timeout, pb).await?;
 
-    let mut durations = Vec::with_capacity(target_request_count_usize);
+    let request_sent = results.iter().map(|r| r.request_sent).sum::<u64>();
+    let durations = results
+        .into_iter()
+        .flat_map(|r| r.durations)
+        .collect::<Vec<_>>();
 
-    loop {
-        select! {
-            _ = timer.tick() => {
-                f.push(run_worker());
-                pb.inc(1);
-                requests_sent += 1;
-            }
-
-            result = f.next() => {
-                match result {
-                    Some(result) => {
-                        durations.push(result?);
-                    }
-                    None => {
-                    select! {
-                        _ = timer.tick() => {
-                            f.push(run_worker());
-                            pb.inc(1);
-                            requests_sent += 1;
-                        }
-                        () = tokio::time::sleep_until(deadline.into()) => {
-                            // NOTE: No ongoing worker, we can just break.
-                            break;
-                        }
-                    }
-                    }
-                }
-            }
-
-            () = tokio::time::sleep_until(deadline.into()) => {
-                while (f.next().await).is_some() {
-                    // NOTE: We are waiting for the workers to finish.
-                }
-                break;
-            }
-        }
-    }
-
-    let actual_throughput = requests_sent / cli.test_duration.as_secs();
-    let percent_of_target_throughput = 100 * requests_sent / target_request_count;
+    let actual_throughput = request_sent / cli.test_duration.as_secs();
+    let percent_of_target_throughput = 100 * request_sent / target_request_count;
 
     if percent_of_target_throughput < ACCEPTABLE_PERCENTAGE_OF_TARGET_THROUGHPUT {
         return Err(Error::CouldNotReachTargetThroughput(
@@ -202,39 +141,6 @@ where
     pb.finish_with_message(format!(
         "{target_throughput} req/s: {percent_of_target_throughput}% of planned requests sent, avg: {avg_duration:?}, min: {min_duration:?}, max: {max_duration:?}",
     ));
-
-    Ok(())
-}
-
-async fn call_ext_proc(channel: Channel) -> Result<()> {
-    let mut client = ExternalProcessorClient::new(channel);
-
-    let (tx, rx) = mpsc::channel(2);
-    tx.send(request_headers::create_processing_request())
-        .await
-        .map_err(|e| Error::CannotSendInitialRequest(Box::new(e)))?;
-
-    let request_stream = ReceiverStream::new(rx);
-
-    let response = client
-        .process(request_stream)
-        .await
-        .map_err(|e| Error::FailedToCallExtProc(Box::new(e)))?;
-
-    let mut response_stream = response.into_inner();
-
-    let Some(_processing_response) = response_stream.next().await else {
-        // Early return if the stream is closed.
-        return Ok(());
-    };
-
-    let Ok(()) = tx.send(response_headers::create_processing_request()).await else {
-        return Ok(());
-    };
-
-    let Some(_processing_response) = response_stream.next().await else {
-        return Ok(());
-    };
 
     Ok(())
 }
