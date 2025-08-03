@@ -23,6 +23,8 @@ mod cli;
 pub(crate) mod error;
 mod report;
 mod sample_requests;
+mod scheduler;
+mod worker;
 
 use error::Result;
 

@@ -26,6 +26,10 @@ pub(crate) enum Error {
     EstimatedRequestCountTooLarge(TryFromIntError),
     #[error("selected parameters would result in too many throughputs being tested")]
     TooManyThroughputsToTest,
+    #[error("concurrency must be greater than 0")]
+    ConcurrencyMustBeGreaterThanZero,
+    #[error("concurrency must be less than u32::MAX: {0}")]
+    ConcurrencyMustBeLessThanU32Max(TryFromIntError),
 }
 
 impl Error {
@@ -39,6 +43,8 @@ impl Error {
             Error::WriteReport(_) => 6,
             Error::EstimatedRequestCountTooLarge(_) => 7,
             Error::TooManyThroughputsToTest => 8,
+            Error::ConcurrencyMustBeGreaterThanZero => 9,
+            Error::ConcurrencyMustBeLessThanU32Max(_) => 10,
         }
     }
 }
