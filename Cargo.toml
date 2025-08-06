@@ -11,16 +11,18 @@ categories = ["development-tools", "web-programming"]
 publish = false
 
 [dependencies]
-clap = { version = "4.5.41", features = ["derive"] }
+clap = { version = "4.5.43", features = ["derive"] }
 futures = "0.3.31"
 indicatif = "0.18.0"
-prost = "0.13.5"
-prost-types = "0.13.5"
+prost = "0.14.1"
+prost-types = "0.14.1"
 thiserror = "2.0.12"
-tokio = { version = "1.46.1", features = ["full", "test-util"] }
+tokio = { version = "1.47.1", features = ["full", "test-util"] }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.16"
-tonic = "0.13.1"
+tonic = "0.14.0"
+tonic-prost = "0.14.0"
 
 [build-dependencies]
-tonic-build = "0.13.1"
+tonic-build = "0.14.0"
+tonic-prost-build = "0.14.0"
