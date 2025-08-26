@@ -48,16 +48,22 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@ab6845274e2ff01cd4462007e1a9d9df1ab49f42 # v1
         with:
           target: x86_64-unknown-linux-musl
+      - uses: actions-rust-lang/setup-rust-toolchain@ab6845274e2ff01cd4462007e1a9d9df1ab49f42 # v1
+        with:
+          target: aarch64-unknown-linux-musl
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build Intel
         run: cargo build --release --target x86_64-unknown-linux-musl --verbose
+      - name: Build Arm
+        run: cargo build --release --target aarch64-unknown-linux-musl --verbose
       - name: Prepare artifact
         run: |
           mkdir artifacts
           cp target/x86_64-unknown-linux-musl/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-unknown-linux-musl
+          cp target/aarch64-unknown-linux-musl/release/ext-proc-load-tester artifacts/ext-proc-load-tester-aarch64-unknown-linux-musl
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -92,6 +98,7 @@ jobs:
             macos-artifacts/ext-proc-load-tester-aarch64-apple-darwin
             macos-artifacts/ext-proc-load-tester-x86_64-apple-darwin
             linux-artifacts/ext-proc-load-tester-x86_64-unknown-linux-musl
+            linux-artifacts/ext-proc-load-tester-aarch64-unknown-linux-musl
   build-docker:
     name: Build Docker image
     runs-on: ubuntu-latest
