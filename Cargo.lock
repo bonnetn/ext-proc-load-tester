@@ -284,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "ext-proc-load-tester"
-version = "0.1.35"
+version = "0.1.36"
 dependencies = [
  "clap",
  "futures",
