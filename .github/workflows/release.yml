@@ -55,7 +55,7 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: taiki-e/setup-cross-toolchain@v1
+      - uses: taiki-e/setup-cross-toolchain@2e0531289dd93ff61dcf5313d926c6bbe8b31d45 # v1
         with:
           target: aarch64-unknown-linux-musl
       - name: Build Intel
