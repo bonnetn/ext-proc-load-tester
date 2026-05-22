@@ -72,7 +72,7 @@ async fn load_test(
         progress_bars.push(pb);
     }
 
-    for (throughput, pb) in throughputs.into_iter().zip(progress_bars.into_iter()) {
+    for (throughput, pb) in throughputs.into_iter().zip(progress_bars) {
         run_with_throughput(&pb, cli, throughput, scheduler, result_directory).await?;
         pb.finish();
     }

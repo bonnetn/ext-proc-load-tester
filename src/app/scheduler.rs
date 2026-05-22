@@ -305,7 +305,7 @@ mod tests {
 
     fn timeout() -> Duration {
         // NOTE: We add 1/10 of the interval to avoid the case where the deadline is exactly at the same time as the tick.
-        Duration::from_millis(8000) + interval().checked_div(10).unwrap()
+        Duration::from_secs(8) + interval().checked_div(10).unwrap()
     }
 
     #[derive(Debug)]
@@ -458,7 +458,7 @@ mod tests {
     async fn test_worker_scheduler_handles_slow_intervals() {
         let w = workers();
         let mut scheduler = Scheduler::new(&w, REPORT_INTERVAL).unwrap();
-        let long_interval = Duration::from_millis(1000);
+        let long_interval = Duration::from_secs(1);
         let short_timeout = Duration::from_millis(500);
 
         let durations = scheduler
@@ -528,7 +528,7 @@ mod tests {
 
         let mut scheduler = Scheduler::new(&slow_workers, REPORT_INTERVAL).unwrap();
         let short_interval = Duration::from_millis(50); // Fast interval
-        let timeout = Duration::from_millis(1000);
+        let timeout = Duration::from_secs(1);
 
         let durations = scheduler
             .run(short_interval, timeout, &StubProgressReporter::default())
@@ -613,7 +613,7 @@ mod tests {
 
         let mut scheduler = Scheduler::new(&slow_workers, REPORT_INTERVAL).unwrap();
         let short_interval = Duration::from_millis(50); // 50ms interval
-        let test_timeout = Duration::from_millis(1000); // 1 second test
+        let test_timeout = Duration::from_secs(1); // 1 second test
 
         let durations = scheduler
             .run(
