@@ -1,4 +1,4 @@
-FROM rust:1.96-bookworm@sha256:af7f20eac8ef287e19b5e51163b0966be7f2c6b106affa909ad1e25a55070a22 AS builder
+FROM rust:1.96-bookworm@sha256:54152db00aafd37bc5ce1f3585aaa42f17cdd5c8e5ef9eabfbc0718b42bce312 AS builder
 
 WORKDIR /usr/src/ext-proc-load-tester
 
