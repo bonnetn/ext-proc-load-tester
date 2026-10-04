@@ -322,6 +322,7 @@ mod tests {
         }
     }
     impl Worker for Arc<StubWorker> {
+        #[allow(clippy::unused_async_trait_impl)]
         async fn run(&self) -> Result<()> {
             let _ = self.triggers.fetch_add(1, Ordering::Relaxed);
             Ok(())
@@ -344,6 +345,7 @@ mod tests {
         }
     }
     impl Worker for Arc<ErrorWorker> {
+        #[allow(clippy::unused_async_trait_impl)]
         async fn run(&self) -> Result<()> {
             let _ = self.triggers.fetch_add(1, Ordering::Relaxed);
             if self.should_error {
