@@ -34,7 +34,7 @@ jobs:
           cp target/aarch64-apple-darwin/release/ext-proc-load-tester artifacts/ext-proc-load-tester-aarch64-apple-darwin
           cp target/x86_64-apple-darwin/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-apple-darwin
       - name: Upload artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: macos-build-artifacts
           path: artifacts/*
@@ -68,7 +68,7 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-unknown-linux-musl
           cp target/aarch64-unknown-linux-musl/release/ext-proc-load-tester artifacts/ext-proc-load-tester-aarch64-unknown-linux-musl
       - name: Upload artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: linux-build-artifacts
           path: artifacts/*
