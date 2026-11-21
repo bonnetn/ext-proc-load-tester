@@ -115,7 +115,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: inputs.tag != '' || startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Docker meta
         id: meta
@@ -131,6 +131,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.tag || github.ref_name }}
           submodules: "true"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
