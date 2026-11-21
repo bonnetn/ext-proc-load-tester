@@ -124,9 +124,8 @@ jobs:
           images: |
             ghcr.io/bonnetn/ext-proc-load-tester
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ inputs.tag || github.ref_name }}
+            type=raw,value=latest
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
