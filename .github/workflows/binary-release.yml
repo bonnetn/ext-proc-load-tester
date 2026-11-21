@@ -1,0 +1,148 @@
+name: Binary release
+on:
+  push:
+    branches: ["main"]
+    tags:
+      - "v*"
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  macos-build:
+    name: MacOS build
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
+        with:
+          target: x86_64-apple-darwin
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
+        with:
+          target: aarch64-apple-darwin
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build ARM
+        run: cargo build --release --target aarch64-apple-darwin --verbose
+      - name: Build Intel
+        run: cargo build --release --target x86_64-apple-darwin --verbose
+      - name: Prepare artifact
+        run: |
+          mkdir artifacts
+          cp target/aarch64-apple-darwin/release/ext-proc-load-tester artifacts/ext-proc-load-tester-aarch64-apple-darwin
+          cp target/x86_64-apple-darwin/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-apple-darwin
+      - name: Upload artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: macos-build-artifacts
+          path: artifacts/*
+  linux-build:
+    name: Linux build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: "true"
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
+        with:
+          target: x86_64-unknown-linux-musl
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2
+        with:
+          target: aarch64-unknown-linux-musl
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: taiki-e/setup-cross-toolchain@12b7ad4acfa95a1476779d6c06699b96ec1691f8 # v1
+        with:
+          target: aarch64-unknown-linux-musl
+      - name: Build Intel
+        run: cargo build --release --target x86_64-unknown-linux-musl --verbose
+      - name: Build Arm
+        run: cargo build --release --target aarch64-unknown-linux-musl --verbose
+      - name: Prepare artifact
+        run: |
+          mkdir artifacts
+          cp target/x86_64-unknown-linux-musl/release/ext-proc-load-tester artifacts/ext-proc-load-tester-x86_64-unknown-linux-musl
+          cp target/aarch64-unknown-linux-musl/release/ext-proc-load-tester artifacts/ext-proc-load-tester-aarch64-unknown-linux-musl
+      - name: Upload artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: linux-build-artifacts
+          path: artifacts/*
+
+  release:
+    name: Create GitHub Release
+    needs:
+     - macos-build
+     - linux-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      discussions: write
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: macos-build-artifacts
+          path: ./macos-artifacts
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: linux-build-artifacts
+          path: ./linux-artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          files: |
+            macos-artifacts/ext-proc-load-tester-aarch64-apple-darwin
+            macos-artifacts/ext-proc-load-tester-x86_64-apple-darwin
+            linux-artifacts/ext-proc-load-tester-x86_64-unknown-linux-musl
+            linux-artifacts/ext-proc-load-tester-aarch64-unknown-linux-musl
+  build-docker:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: |
+            ghcr.io/bonnetn/ext-proc-load-tester
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: "true"
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        with:
+          version: v0.38.1
+          driver-opts: image=moby/buildkit:v0.23.2
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
